@@ -17,6 +17,7 @@ import db
 import ui.config   as page_config
 import ui.matches  as page_matches
 import ui.analysis as page_analysis
+import ui.coaching as page_coaching
 
 # ---------------------------------------------------------------------------
 # CSS global
@@ -302,7 +303,7 @@ def main() -> None:
         if setup_ok:
             page = st.radio(
                 "nav",
-                options=["⚙️ Configuración", "🎮 Partidas", "📊 Análisis"],
+                options=["🧠 Coaching", "🎮 Partidas", "📊 Datos", "⚙️ Configuración"],
                 label_visibility="collapsed",
                 key="current_page",
             )
@@ -310,9 +311,11 @@ def main() -> None:
             st.markdown("⚙️ &nbsp; **Configuración**")
             st.markdown(
                 '<p style="color:#475569;font-size:0.9rem;margin:0.2rem 0 0">'
+                '🔒 &nbsp; Coaching</p>'
+                '<p style="color:#475569;font-size:0.9rem;margin:0.2rem 0 0">'
                 '🔒 &nbsp; Partidas</p>'
                 '<p style="color:#475569;font-size:0.9rem;margin:0.2rem 0 0">'
-                '🔒 &nbsp; Análisis</p>',
+                '🔒 &nbsp; Datos</p>',
                 unsafe_allow_html=True,
             )
             page = "⚙️ Configuración"
@@ -333,12 +336,14 @@ def main() -> None:
     # ----------------------------------------------------------------
     # Routing
     # ----------------------------------------------------------------
-    if page == "⚙️ Configuración":
-        page_config.render()
+    if page == "🧠 Coaching":
+        page_coaching.render()
     elif page == "🎮 Partidas":
         page_matches.render()
-    elif page == "📊 Análisis":
+    elif page == "📊 Datos":
         page_analysis.render()
+    elif page == "⚙️ Configuración":
+        page_config.render()
 
 
 if __name__ == "__main__":

@@ -381,13 +381,13 @@ def render() -> None:
             annotation_text="Crítico (40)", annotation_position="right",
         )
         fig_overall.update_layout(
-            yaxis=dict(range=[0, 105]),
             xaxis_title="Partida →",
             yaxis_title="Score",
             showlegend=False,
             **_chart_layout(280),
         )
-        st.plotly_chart(fig_overall, use_container_width=True)
+        fig_overall.update_yaxes(range=[0, 105])
+        st.plotly_chart(fig_overall, width="stretch")
 
     # — Muertes trend —
     with col_g2:
@@ -408,13 +408,13 @@ def render() -> None:
             annotation_text="Objetivo (4)", annotation_position="right",
         )
         fig_deaths.update_layout(
-            yaxis=dict(range=[0, max(max(deaths_series) + 2, 10)]),
             xaxis_title="Partida →",
             yaxis_title="Muertes",
             showlegend=False,
             **_chart_layout(280),
         )
-        st.plotly_chart(fig_deaths, use_container_width=True)
+        fig_deaths.update_yaxes(range=[0, max(max(deaths_series) + 2, 10)])
+        st.plotly_chart(fig_deaths, width="stretch")
 
     # ────────────────────────────────────────────────────────────────
     # 9. MÉTRICAS DETALLADAS
@@ -441,7 +441,7 @@ def render() -> None:
                 "Overall":  s.overall_score,
             })
 
-        st.dataframe(rows, use_container_width=True, hide_index=True)
+        st.dataframe(rows, width="stretch", hide_index=True)
 
         # Promedios de los 3 sub-scores al final de la tabla
         st.caption(

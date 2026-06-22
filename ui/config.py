@@ -142,7 +142,7 @@ def render() -> None:
             st.rerun()
     else:
         if st.button("→ Ver mi análisis", key="cta_go_analysis"):
-            st.session_state.current_page = "📊 Análisis"
+          #  st.session_state.current_page = "📊 Análisis"
             st.rerun()
 
     # ----------------------------------------------------------------
