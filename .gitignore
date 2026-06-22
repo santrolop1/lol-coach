@@ -1,0 +1,68 @@
+# ─── Base de datos ────────────────────────────────────────────────────────────
+# Contiene API Keys, PUUIDs y datos personales del usuario
+data/lol_coach.db
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+
+# ─── Caché de Riot API ────────────────────────────────────────────────────────
+# Contiene PUUIDs y Riot IDs de otros jugadores (datos de terceros)
+data/raw/
+
+# Mantener la estructura de carpetas vacía en el repo
+!data/.gitkeep
+
+# ─── Variables de entorno ─────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ─── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# ─── Entornos virtuales ───────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+.env/
+ENV/
+
+# ─── Streamlit ────────────────────────────────────────────────────────────────
+.streamlit/secrets.toml
+.streamlit/config.toml
+
+# ─── macOS ────────────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# ─── VSCode ───────────────────────────────────────────────────────────────────
+.vscode/
+*.code-workspace
+
+# ─── JetBrains / PyCharm ──────────────────────────────────────────────────────
+.idea/
+*.iml
+
+# ─── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ─── Archivos temporales ──────────────────────────────────────────────────────
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
