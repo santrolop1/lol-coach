@@ -31,6 +31,7 @@ from backend.services.champion_analyzer import analyze_champion_pool, ChampionPo
 from backend.services.draft_advisor import (
     analyze_draft, DraftAdvice, DraftScore, DraftRecommendation, DraftWarning,
 )
+from backend.draft.draft_advisor_v2 import enhance_recommendations, DraftContextResult
 
 # Mapeo: posición LCU (lowercase) → rol en scorer_v2 / db
 _LCU_TO_ROLE: dict[str, str] = {
@@ -279,6 +280,13 @@ def _render_draft_intelligence(advice: DraftAdvice) -> None:
             unsafe_allow_html=True,
         )
 
+    # ── Contexto v2: enriquecer recomendaciones con sinergia y amenaza ──────
+    ally_names  = [s.champion_name for s in session.my_team    if s.has_pick and not s.is_local_player]
+    enemy_names = [s.champion_name for s in session.their_team if s.has_pick]
+    ctx_result: DraftContextResult | None = None
+    if advice.recommendations:
+        ctx_result = enhance_recommendations(advice.recommendations, ally_names, enemy_names)
+
     col_recs, col_avoid = st.columns([1.15, 1], gap="medium")
 
     # ── Recomendados ──────────────────────────────────────────────────────────
@@ -298,22 +306,80 @@ def _render_draft_intelligence(advice: DraftAdvice) -> None:
                 icon     = rank_icons.get(rec.rank, str(rec.rank))
                 conf_pct = int(rec.confidence)
                 wr_color = "#22C55E" if rec.winrate >= 0.55 else ("#F59E0B" if rec.winrate >= 0.45 else "#EF4444")
-                st.markdown(
-                    f'<div class="di-rec-row">'
-                    f'  <div class="di-rec-rank">{icon}</div>'
-                    f'  <div class="di-rec-champ">{rec.champion}</div>'
-                    f'  <div class="di-rec-stats">'
-                    f'    <span style="color:{wr_color};font-weight:700">{rec.winrate:.0%}</span>'
-                    f'    &nbsp;·&nbsp; Score {rec.avg_score:.0f}'
-                    f'    &nbsp;·&nbsp; {rec.games}P'
-                    f'  </div>'
-                    f'  <span class="di-rec-tag {rec.classification}">{rec.classification}</span>'
-                    f'  <div class="di-rec-conf">⬛ {conf_pct}%</div>'
-                    f'</div>'
-                    f'<div style="font-size:0.68rem;color:#6B7280;padding:0 0.9rem 0.3rem">'
-                    f'{rec.reason}</div>',
-                    unsafe_allow_html=True,
-                )
+
+                # Intentar obtener contexto v2
+                ctx = ctx_result.scores.get(rec.champion.lower()) if ctx_result else None
+
+                if ctx and ctx.context_available:
+                    sy_color = "#22C55E" if ctx.synergy >= 12 else ("#F59E0B" if ctx.synergy >= 6 else "#6B7280")
+                    th_color = "#EF4444" if ctx.threat <= -10 else ("#F59E0B" if ctx.threat <= -5 else "#6B7280")
+                    sy_str   = f"+{ctx.synergy:.0f}"
+                    th_str   = f"{ctx.threat:.0f}"
+                    # Razones positivas (historial + sinergia)
+                    pos_reasons = ctx.pos_reasons[:]
+                    if not pos_reasons:
+                        pos_reasons = [rec.reason] if rec.reason else []
+                    neg_reasons = ctx.neg_reasons
+
+                    reasons_html = ""
+                    for r in pos_reasons[:2]:
+                        reasons_html += f'<span class="di-reason-pos">✓ {r}</span>'
+                    for r in neg_reasons[:1]:
+                        reasons_html += f'<span class="di-reason-neg">⚠ {r}</span>'
+
+                    st.markdown(
+                        f'<div class="di-rec-v2">'
+                        f'  <div class="di-v2-header">'
+                        f'    <div class="di-v2-rank">{icon}</div>'
+                        f'    <div class="di-v2-champ">{rec.champion}</div>'
+                        f'    <span class="di-rec-tag {rec.classification}">{rec.classification}</span>'
+                        f'  </div>'
+                        f'  <div class="di-v2-scores">'
+                        f'    <div class="di-v2-main">'
+                        f'      <span class="di-v2-ds">{ctx.draft_score_v2:.0f}</span>'
+                        f'      <span class="di-v2-ds-lbl">Draft Score</span>'
+                        f'    </div>'
+                        f'    <div class="di-v2-breakdown">'
+                        f'      <div class="di-v2-row">'
+                        f'        <span class="di-v2-lbl">Pick Value</span>'
+                        f'        <span class="di-v2-val" style="color:#D1D5DB">{ctx.pick_value:.0f}</span>'
+                        f'      </div>'
+                        f'      <div class="di-v2-row">'
+                        f'        <span class="di-v2-lbl">Sinergia</span>'
+                        f'        <span class="di-v2-val" style="color:{sy_color}">{sy_str}</span>'
+                        f'      </div>'
+                        f'      <div class="di-v2-row">'
+                        f'        <span class="di-v2-lbl">Amenaza</span>'
+                        f'        <span class="di-v2-val" style="color:{th_color}">{th_str}</span>'
+                        f'      </div>'
+                        f'      <div class="di-v2-row">'
+                        f'        <span class="di-v2-lbl">WR</span>'
+                        f'        <span class="di-v2-val" style="color:{wr_color}">{rec.winrate:.0%}</span>'
+                        f'      </div>'
+                        f'    </div>'
+                        f'  </div>'
+                        f'  <div class="di-v2-reasons">{reasons_html}</div>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    # Fallback: formato clásico para campeones sin perfil
+                    st.markdown(
+                        f'<div class="di-rec-row">'
+                        f'  <div class="di-rec-rank">{icon}</div>'
+                        f'  <div class="di-rec-champ">{rec.champion}</div>'
+                        f'  <div class="di-rec-stats">'
+                        f'    <span style="color:{wr_color};font-weight:700">{rec.winrate:.0%}</span>'
+                        f'    &nbsp;·&nbsp; Score {rec.avg_score:.0f}'
+                        f'    &nbsp;·&nbsp; {rec.games}P'
+                        f'  </div>'
+                        f'  <span class="di-rec-tag {rec.classification}">{rec.classification}</span>'
+                        f'  <div class="di-rec-conf">⬛ {conf_pct}%</div>'
+                        f'</div>'
+                        f'<div style="font-size:0.68rem;color:#6B7280;padding:0 0.9rem 0.3rem">'
+                        f'{rec.reason}</div>',
+                        unsafe_allow_html=True,
+                    )
 
     # ── Evitar ────────────────────────────────────────────────────────────────
     with col_avoid:

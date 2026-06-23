@@ -596,6 +596,34 @@ h1, h2, h3 { color: #FFFFFF !important; }
 .di-avoid-champ { font-size: 0.87rem; font-weight: 700; color: #EF4444; flex: 1; }
 .di-avoid-stats { font-size: 0.75rem; color: #9CA3AF; }
 
+/* ── Draft Intelligence v2 — tarjeta con contexto ── */
+.di-rec-v2 {
+    background: #0E1525; border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 10px; padding: 0.85rem 1rem; margin-bottom: 0.6rem;
+}
+.di-v2-header {
+    display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.7rem;
+}
+.di-v2-rank  { font-size: 0.85rem; font-weight: 900; color: #6B7280; min-width: 20px; }
+.di-v2-champ { font-size: 0.97rem; font-weight: 800; color: #FFFFFF; flex: 1; }
+.di-v2-scores {
+    display: flex; align-items: center; gap: 1.25rem; margin-bottom: 0.65rem;
+}
+.di-v2-main {
+    display: flex; flex-direction: column; align-items: center; gap: 1px;
+    min-width: 52px;
+}
+.di-v2-ds     { font-size: 1.8rem; font-weight: 900; color: #8B5CF6; line-height: 1; }
+.di-v2-ds-lbl { font-size: 0.56rem; color: #6B7280; text-transform: uppercase;
+    letter-spacing: 0.1em; white-space: nowrap; }
+.di-v2-breakdown { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.25rem 1rem; flex: 1; }
+.di-v2-row  { display: flex; align-items: center; justify-content: space-between; }
+.di-v2-lbl  { font-size: 0.68rem; color: #6B7280; }
+.di-v2-val  { font-size: 0.78rem; font-weight: 700; }
+.di-v2-reasons { display: flex; flex-direction: column; gap: 3px; }
+.di-reason-pos { font-size: 0.71rem; color: #22C55E; }
+.di-reason-neg { font-size: 0.71rem; color: #F59E0B; }
+
 .di-warn-row {
     display: flex; gap: 0.6rem; align-items: flex-start;
     padding: 0.55rem 0.85rem; border-radius: 8px; margin-bottom: 0.4rem;
