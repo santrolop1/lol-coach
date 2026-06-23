@@ -14,10 +14,12 @@ sys.path.insert(0, str(ROOT))
 import streamlit as st
 
 import db
-import ui.config   as page_config
-import ui.matches  as page_matches
-import ui.coaching as page_coaching
-import ui.draft    as page_draft
+import ui.config      as page_config
+import ui.matches     as page_matches
+import ui.coaching    as page_coaching
+import ui.draft       as page_draft
+import ui.onboarding  as page_onboarding
+from backend.services.setup_service import is_setup_complete
 
 # ---------------------------------------------------------------------------
 # CSS global
@@ -660,28 +662,103 @@ h1, h2, h3 { color: #FFFFFF !important; }
 .ci-insight.positive { background: rgba(34,197,94,0.05); border: 1px solid rgba(34,197,94,0.12); }
 .ci-insight-icon { font-size: 0.85rem; min-width: 18px; margin-top: 1px; }
 .ci-insight-text { color: #9CA3AF; }
+
+/* ═══════════════════════════════════════════════
+   ONBOARDING
+═══════════════════════════════════════════════ */
+.ob-logo {
+    text-align: center; margin-bottom: 2rem;
+}
+.ob-logo-icon {
+    width: 52px; height: 52px;
+    background: linear-gradient(135deg,#8B5CF6,#6D28D9);
+    border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.6rem; margin: 0 auto 0.85rem;
+}
+.ob-logo-title { font-size: 1.15rem; font-weight: 800; color: #FFFFFF; letter-spacing: 0.05em; }
+.ob-logo-sub   { font-size: 0.75rem; color: #6B7280; margin-top: 0.3rem; letter-spacing: 0.1em; text-transform: uppercase; }
+
+/* Step bar */
+.ob-steps {
+    display: flex; align-items: flex-start; gap: 0;
+    margin-bottom: 2rem; position: relative;
+}
+.ob-step {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 7px;
+    position: relative;
+}
+.ob-step:not(:last-child)::after {
+    content: ''; position: absolute; top: 13px; left: calc(50% + 14px);
+    right: calc(-50% + 14px); height: 1px;
+    background: rgba(255,255,255,0.08);
+}
+.ob-step.done:not(:last-child)::after { background: rgba(139,92,246,0.35); }
+.ob-step-dot {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.72rem; font-weight: 700; z-index: 1;
+    border: 1.5px solid rgba(255,255,255,0.1);
+    background: #0A0F1E; color: #6B7280; flex-shrink: 0;
+}
+.ob-step.done   .ob-step-dot { background: #8B5CF6; border-color: #8B5CF6; color: #FFFFFF; font-size: 0.8rem; }
+.ob-step.active .ob-step-dot { background: #0A0F1E; border-color: #8B5CF6; color: #8B5CF6; }
+.ob-step-label { font-size: 0.63rem; color: #6B7280; text-align: center; line-height: 1.3; }
+.ob-step.done   .ob-step-label { color: #8B5CF6; }
+.ob-step.active .ob-step-label { color: #D1D5DB; }
+
+/* Card de onboarding */
+.ob-card {
+    background: #0E1525; border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 14px; padding: 2rem 2rem 1.75rem;
+    margin-bottom: 1rem;
+}
+.ob-card-title { font-size: 1.05rem; font-weight: 700; color: #FFFFFF; margin-bottom: 0.4rem; }
+.ob-card-sub   { font-size: 0.84rem; color: #6B7280; margin-bottom: 1.75rem; line-height: 1.6; }
+
+/* Account preview */
+.ob-account-preview {
+    background: rgba(139,92,246,0.07); border: 1px solid rgba(139,92,246,0.18);
+    border-radius: 10px; padding: 0.9rem 1.1rem; margin-bottom: 1.5rem;
+    display: flex; align-items: center; gap: 0.9rem;
+}
+.ob-account-icon  { font-size: 1.4rem; flex-shrink: 0; }
+.ob-account-name  { font-size: 0.95rem; font-weight: 700; color: #FFFFFF; }
+.ob-account-meta  { font-size: 0.75rem; color: #9CA3AF; margin-top: 2px; }
+.ob-account-rank  { margin-left: auto; font-size: 0.82rem; font-weight: 700; color: #8B5CF6; white-space: nowrap; }
+
+/* Inline feedback */
+.ob-success {
+    background: rgba(34,197,94,0.07); border: 1px solid rgba(34,197,94,0.18);
+    border-radius: 8px; padding: 0.65rem 0.9rem; margin-bottom: 1.25rem;
+    font-size: 0.83rem; color: #22C55E; display: flex; gap: 0.5rem; align-items: center;
+}
+.ob-error {
+    background: rgba(239,68,68,0.07); border: 1px solid rgba(239,68,68,0.18);
+    border-radius: 8px; padding: 0.65rem 0.9rem; margin-top: 0.75rem;
+    font-size: 0.83rem; color: #EF4444; display: flex; gap: 0.5rem; align-items: center;
+}
+
+/* ═══════════════════════════════════════════════
+   CONFIG PAGE
+═══════════════════════════════════════════════ */
+.cfg-stat-row {
+    display: flex; gap: 1rem; margin-top: 0.75rem; flex-wrap: wrap;
+}
+.cfg-stat {
+    flex: 1; min-width: 80px;
+    background: #0E1525; border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 10px; padding: 0.9rem 1rem;
+}
+.cfg-stat-val { font-size: 1.5rem; font-weight: 800; color: #FFFFFF; }
+.cfg-stat-lbl { font-size: 0.68rem; color: #6B7280; margin-top: 2px;
+    letter-spacing: 0.08em; text-transform: uppercase; }
+.cfg-stat-sub { font-size: 0.72rem; color: #4B5563; margin-top: 1px; }
 </style>
 """
 
 
-# ---------------------------------------------------------------------------
-# Setup check
-# ---------------------------------------------------------------------------
-
-def is_setup_complete() -> bool:
-    """
-    True cuando la cuenta está vinculada y verificada con Riot API.
-
-    No requiere API Key activa — el análisis histórico de partidas ya
-    descargadas funciona sin ella. La key solo se necesita para verificar
-    cuenta o descargar partidas nuevas.
-    """
-    return all([
-        db.get_config("game_name"),
-        db.get_config("tag_line"),
-        db.get_config("platform"),
-        db.get_config("puuid"),   # solo existe tras una verificación exitosa
-    ])
+# is_setup_complete() importada desde backend.services.setup_service
 
 
 # ---------------------------------------------------------------------------
@@ -726,38 +803,38 @@ def main() -> None:
                 label_visibility="collapsed",
                 key="current_page",
             )
+
+            puuid = db.get_config("puuid")
+            if puuid:
+                player = db.get_player(puuid)
+                if player:
+                    rank  = player.get("rank", "Sin rango")
+                    lp    = player.get("lp", 0)
+                    level = player.get("level", "?")
+                    st.markdown(
+                        f'<div class="sb-player-card">'
+                        f'<div class="sb-player-name">👤 {player["riot_id"]}#{player["tag"]}</div>'
+                        f'<div class="sb-player-level">Nivel {level}</div>'
+                        f'<div class="sb-player-rank">{rank} · {lp} LP</div>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
         else:
+            # Onboarding en curso — sidebar mínimo
             st.markdown(
-                '<p style="color:#9CA3AF;font-size:0.86rem;padding:0.62rem 0.9rem;font-weight:600">⚙️ Configuración</p>'
-                '<p style="color:#6B7280;font-size:0.86rem;padding:0.4rem 0.9rem">🔒 Coaching</p>'
-                '<p style="color:#6B7280;font-size:0.86rem;padding:0.4rem 0.9rem">🔒 Partidas</p>'
-                '<p style="color:#6B7280;font-size:0.86rem;padding:0.4rem 0.9rem">🔒 Draft</p>',
+                '<p style="color:#6B7280;font-size:0.8rem;padding:0.5rem 0.9rem;'
+                'font-weight:600;letter-spacing:0.05em;text-transform:uppercase">'
+                '⚙️ Configuración inicial</p>',
                 unsafe_allow_html=True,
             )
-            page = "⚙️ Configuración"
-
-        puuid = db.get_config("puuid")
-        if setup_ok and puuid:
-            player = db.get_player(puuid)
-            if player:
-                rank  = player.get("rank", "Sin rango")
-                lp    = player.get("lp", 0)
-                level = player.get("level", "?")
-                st.markdown(
-                    f'<div class="sb-player-card">'
-                    f'<div class="sb-player-name">👤 {player["riot_id"]}#{player["tag"]}</div>'
-                    f'<div class="sb-player-level">Nivel {level}</div>'
-                    f'<div class="sb-player-rank">{rank} · {lp} LP</div>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
-        else:
-            st.markdown('<p style="color:#6B7280;font-size:0.78rem;padding:0.5rem">⚠️ Cuenta no configurada</p>', unsafe_allow_html=True)
+            page = "__onboarding__"
 
     # ----------------------------------------------------------------
     # Routing
     # ----------------------------------------------------------------
-    if page == "🧠 Coaching":
+    if not setup_ok:
+        page_onboarding.render()
+    elif page == "🧠 Coaching":
         page_coaching.render()
     elif page == "🎮 Partidas":
         page_matches.render()
