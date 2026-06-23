@@ -212,8 +212,8 @@ def _render_champ_select(session: ChampSelectSession) -> None:
         )
 
 
-def _render_draft_intelligence(advice: DraftAdvice) -> None:
-    """Sección Sprint 8: Draft Intelligence — recomendaciones basadas en historial."""
+def _render_draft_intelligence(advice: DraftAdvice, session: ChampSelectSession) -> None:
+    """Sección Sprint 8+9: Draft Intelligence — historial + análisis contextual."""
     role = _LCU_TO_ROLE.get(advice.role, advice.role.upper())
     st.markdown(
         f'<div class="sec-header"><span class="sec-header-title">🧠 &nbsp;DRAFT INTELLIGENCE — {role}</span></div>',
@@ -518,7 +518,7 @@ def render() -> None:
                 cpa = _get_cpa(creds, session.my_role)
                 if cpa is not None:
                     advice = analyze_draft(session, cpa)
-                    _render_draft_intelligence(advice)
+                    _render_draft_intelligence(advice, session)
                 elif _LCU_TO_ROLE.get(session.my_role, "") not in _SUPPORTED_ROLES:
                     role_name = _LCU_TO_ROLE.get(session.my_role, session.my_role.upper())
                     st.markdown(
