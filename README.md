@@ -1,147 +1,187 @@
 # LoL Coach
 
-Personal performance analyzer for League of Legends. Tracks your matches, calculates scores across farm, survival, and combat, and gives you concrete weekly improvement tips.
+Entrenador personal de League of Legends basado en tu historial real.
+Analiza tus partidas, detecta tus problemas concretos y te da un plan de mejora semanal.
+Integración con el cliente de LoL para recomendaciones en tiempo real durante el Draft.
 
-Built for ADC and TOP players in Gold–Plat elo.
+Diseñado para jugadores de **ADC y TOP** en elo Gold–Platino.
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![Streamlit](https://img.shields.io/badge/Streamlit-1.35%2B-red)
+![Streamlit](https://img.shields.io/badge/Streamlit-1.58%2B-red)
 ![SQLite](https://img.shields.io/badge/SQLite-local-green)
 
 ---
 
-## Features
+## Características
 
-- **Match history** — Download your last 5–50 ranked or normal games directly from Riot API
-- **Performance scoring** — Farm Score, Survival Score, Fight Score, and Overall Score (0–100)
-- **Role-aware benchmarks** — Separate calibration for ADC and TOP
-- **Recommendations** — Detects weaknesses and gives one concrete priority tip per week
-- **Trend chart** — Visual progression of your Overall Score over time
-- **Fully local** — All data stored on your machine in SQLite, nothing sent to third parties
+### 🧠 Coaching
+- **Scoring V2** — Economy, Positioning, Combat Impact por partida y promedio
+- **Coaching engine** — Detecta tu problema principal, causa probable e impacto en LP
+- **Plan de entrenamiento** — Acción primaria + secundarias derivadas de tus datos
+- **Fortalezas y debilidades** — Basadas en tus métricas reales, sin hardcodes
+- **Evolución** — Gráfico de score y muertes por partida con línea de tendencia OLS
+- **Datos avanzados** — Benchmarks por rol (ADC / TOP) contra percentiles de tu historial
+
+### 🏆 Champion Intelligence
+- **Pool grade** (A–F) — Calculado desde 4 factores: profundidad, rendimiento, consistencia, distribución
+- **Clasificación automática** — MAIN / CARRY / COMFORT / TRAP desde tus datos reales
+- **Tabla de campeones** — WR, score, tendencia (↑→↓) y flag de peligro por campeón
+- **Insights accionables** — Detecta dependencia excesiva, traps y oportunidades de carry
+
+### 🎮 Partidas
+- **Descarga** — Últimas 5–50 partidas desde Riot API (Ranked, Normal, Flex)
+- **Historial filtrable** — Por rol y campeón con métricas completas
+- **Análisis detallado V2** — Sub-scores por dimensión partida a partida
+
+### 🎯 Draft (integración con LCU)
+- **Detección automática** del cliente de League of Legends via lockfile
+- **Champ Select en tiempo real** — Picks aliados, picks enemigos, bans y timer
+- **Draft Intelligence** — Top 3 picks recomendados desde tu historial personal
+- **Draft Score** — 0–100 para tu pick actual, desglosado en 4 factores
+- **EVITAR** — Lista de traps detectados desde tus datos
+- **Alertas** — Picks sin historial, muestra insuficiente, dependencia excesiva
+- Auto-refresh cada 750 ms durante Champ Select
 
 ---
 
-## Requirements
+## Requisitos
 
-- Python 3.10 or higher
-- A Riot Games Developer API Key → [developer.riotgames.com](https://developer.riotgames.com)
+- Python 3.10 o superior
+- Una API Key de Riot Games → [developer.riotgames.com](https://developer.riotgames.com)
+- League of Legends instalado (solo para la función Draft en tiempo real)
 
-> **Note:** Developer API Keys expire every 24 hours. You will need to regenerate yours daily.
+> **Nota:** Las API Keys de desarrollo expiran cada 24 horas. Necesitarás regenerar la tuya a diario.
 
 ---
 
-## Setup
+## Instalación
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/your-username/lol-coach.git
+# 1. Clonar el repositorio
+git clone https://github.com/santrolop1/lol-coach.git
 cd lol-coach
 
-# 2. Create and activate a virtual environment (recommended)
-python3 -m venv venv
-source venv/bin/activate        # macOS / Linux
-# venv\Scripts\activate         # Windows
+# 2. Crear y activar entorno virtual
+python -m venv venv
+venv\Scripts\activate        # Windows
+# source venv/bin/activate   # macOS / Linux
 
-# 3. Install dependencies
+# 3. Instalar dependencias
 pip install -r requirements.txt
 
-# 4. Run the app
+# 4. Ejecutar
 streamlit run main.py
 ```
 
-The app opens at `http://localhost:8501`.
+La app abre en `http://localhost:8501`.
 
 ---
 
-## First-time configuration
+## Configuración inicial
 
-1. Go to **⚙️ Configuración**
-2. Paste your Riot Developer API Key
-3. Enter your Riot ID (Name + Tag, e.g. `YourName` / `LA1`)
-4. Select your server region
-5. Click **💾 Guardar configuración**
-6. Click **Probar API Key y buscar cuenta** to verify your account is found
-
----
-
-## Downloading matches
-
-1. Go to **🎮 Partidas**
-2. Select how many matches to download (5–50)
-3. Select queue type:
-   - **Ranked Solo/Duo** — recommended for serious analysis
-   - **Ranked Flex**
-   - **Normal Draft**
-   - **Todas** — all queues
-4. Click **🔄 Descargar partidas**
+1. Ve a **⚙️ Configuración**
+2. Pega tu Riot Developer API Key
+3. Ingresa tu Riot ID (Nombre + Tag, ej: `TuNombre` / `LA1`)
+4. Selecciona tu región
+5. Haz clic en **💾 Guardar configuración**
+6. Haz clic en **Probar API Key y buscar cuenta** para verificar tu cuenta
 
 ---
 
-## Viewing your analysis
+## Descargar partidas
 
-1. Go to **📊 Análisis**
-2. Filter by role (ADC / TOP) and number of recent games
-3. Review your average scores, trend chart, weaknesses, strengths, and weekly tip
+1. Ve a **🎮 Partidas**
+2. Selecciona cuántas partidas descargar (5–50)
+3. Selecciona el tipo de cola (Ranked Solo/Duo recomendado)
+4. Haz clic en **🔄 Descargar partidas**
+
+Se recomienda tener **al menos 10 partidas por rol** para que el coaching engine funcione de forma confiable.
 
 ---
 
-## Scoring system
+## Sistema de scoring (V2)
 
-All scores range from **0 to 100**.
+Todos los scores van de **0 a 100**.
 
-| Score | What it measures | ADC benchmark (bad → good) |
+### Dimensiones por rol
+
+| Dimensión | ADC — métricas | TOP — métricas |
 |---|---|---|
-| Farm Score | CS per minute | 4.5 → 7.5 CS/min |
-| Survival Score | Deaths + KDA | 7 deaths → 1 death, KDA 1.0 → 4.0 |
-| Fight Score | Damage per minute + KDA | 350 → 900 dmg/min |
-| Overall Score | Weighted average | Farm 35% + Survival 30% + Fight 35% |
+| Economy | CS/min, gold/min, CS a los 10 | CS/min, gold/min |
+| Positioning | Muertes, KDA, participación | Muertes, KDA, daño recibido |
+| Combat Impact | Daño/min, KP%, kills | Daño/min, kill participation |
 
-Benchmarks are calibrated for **Gold / Platinum** elo.
+El **Overall Score** es la media ponderada de las 3 dimensiones.
+
+### Draft Score (pick en Champ Select)
+
+| Factor | Fórmula | Peso |
+|---|---|---|
+| Familiaridad | `min(30, partidas / 10 × 30)` | 30 pts |
+| Rendimiento | `avg_score / 100 × 30` | 30 pts |
+| Consistencia | `consistency / 100 × 25` | 25 pts |
+| WR personal | `winrate × 15` | 15 pts |
 
 ---
 
-## Project structure
+## Estructura del proyecto
 
 ```
 lol-coach/
-├── main.py              # Streamlit entry point and navigation
-├── db.py                # SQLite storage layer
-├── riot_api.py          # Riot Games API client (HTTP + cache)
-├── parser.py            # Converts raw Riot JSON to internal MatchData
-├── scorer.py            # Scoring engine (0–100)
-├── recommendations.py   # Rule-based recommendation system
+├── main.py                          # Entry point Streamlit + navegación + CSS
+├── db.py                            # Capa SQLite local
+├── riot_api.py                      # Cliente Riot Match v5 / Account v1
+├── parser.py                        # JSON de Riot → MatchData interno
+├── scorer.py                        # Scoring V1 (compatibilidad)
+├── scorer_v2.py                     # Scoring V2 multidimensional
+├── coaching_engine.py               # Motor de detección de problemas
+├── coaching_rules.py                # Reglas por rol (ADC, TOP)
 ├── requirements.txt
-├── data/
-│   └── .gitkeep         # Placeholder — DB and cache created at runtime
-└── ui/
-    ├── config.py        # Configuration page
-    ├── matches.py       # Match download and history page
-    └── analysis.py      # Analysis, charts, and recommendations page
+│
+├── backend/
+│   └── services/
+│       ├── champion_analyzer.py     # Pool analysis, clasificación, grade A–F
+│       └── draft_advisor.py         # Recomendaciones de draft desde historial
+│
+├── lcu/
+│   ├── client.py                    # Lectura de lockfile + HTTP al cliente LCU
+│   ├── models.py                    # Dataclasses: ChampSelectSession, ChampionSlot…
+│   └── champ_select.py              # Parser de sesión JSON → modelos tipados
+│
+├── ui/
+│   ├── coaching.py                  # Página 🧠 Coaching (principal)
+│   ├── matches.py                   # Página 🎮 Partidas
+│   ├── draft.py                     # Página 🎯 Draft (LCU + Draft Intelligence)
+│   └── config.py                    # Página ⚙️ Configuración
+│
+└── data/
+    └── lol_coach.db                 # Base de datos SQLite (generada en runtime)
 ```
 
 ---
 
-## Tech stack
+## Stack tecnológico
 
-| Layer | Technology |
+| Capa | Tecnología |
 |---|---|
-| UI | Streamlit |
-| Charts | Plotly |
+| UI | Streamlit 1.58 |
+| Charts | Plotly 6 |
 | Storage | SQLite (local) |
-| API | Riot Games Match v5, Account v1, League v4 |
-| Language | Python 3.10+ |
+| Riot API | Match v5, Account v1, League v4 |
+| LCU API | HTTP local + lockfile (no oficial) |
+| Lenguaje | Python 3.10+ |
 
 ---
 
-## Important notes
+## Notas importantes
 
-- This app uses a **Riot Games Developer API Key** which expires every 24 hours. It is not intended for production deployment.
-- Match data is cached locally in `data/raw/` to minimize API calls.
-- Your API Key is stored locally in `data/lol_coach.db` — never share this file.
-- Analysis currently supports **ADC** and **TOP** roles only.
+- La integración con LCU (Draft en tiempo real) usa la API interna del cliente de League, la cual **no es oficial y puede cambiar sin aviso**. Solo se realizan lecturas (GET), sin modificar el cliente.
+- Tu API Key de Riot se almacena localmente en `data/lol_coach.db` — no compartas este archivo.
+- El análisis soporta actualmente **ADC y TOP**. MID, JGL y SUP se activarán cuando haya suficientes partidas por rol.
+- Todos los datos se procesan localmente. Nada se envía a terceros.
 
 ---
 
-## License
+## Licencia
 
 MIT

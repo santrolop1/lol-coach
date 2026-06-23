@@ -10,6 +10,7 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import db
+import scorer_v2
 from riot_api import RiotClient, RiotAPIError
 from parser import parse_match
 from scorer import calculate_score
@@ -186,7 +187,44 @@ def render() -> None:
             "Fecha":     (m["played_at"] or "")[:10],
         })
 
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+    st.dataframe(rows, use_container_width=True, hide_index=True)  # noqa: kept width
+
+    # ----------------------------------------------------------------
+    # Análisis detallado V2 (solo cuando hay un rol concreto)
+    # ----------------------------------------------------------------
+    if role_filter in ("ADC", "TOP"):
+        role_matches_v2 = [m for m in matches if m["role"] == role_filter]
+        if len(role_matches_v2) >= 5:
+            with st.expander(f"📊 Análisis detallado V2 — {role_filter} ({len(role_matches_v2)} partidas)"):
+                sr = scorer_v2.analyze_player(role_matches_v2, role_filter)
+
+                # Nombres de dimensiones según rol
+                dim_names = [d.name for d in sr.match_scores[0].dimensions] if sr.match_scores else []
+
+                # Tabla por partida
+                detail_rows = []
+                for m, ms in zip(role_matches_v2, sr.match_scores):
+                    row = {
+                        "Fecha":     (m.get("played_at") or "")[:10],
+                        "Campeón":   m.get("champion", "?"),
+                        "Resultado": "✅" if m.get("result") == "WIN" else "❌",
+                        "Overall":   round(ms.overall_score, 1) if ms.overall_score else 0,
+                        "KDA":       f"{m.get('kills',0)}/{m.get('deaths',0)}/{m.get('assists',0)}",
+                    }
+                    for d in ms.dimensions:
+                        row[d.name] = round(d.score, 1)
+                    detail_rows.append(row)
+
+                st.dataframe(detail_rows, use_container_width=True, hide_index=True)
+
+                # Promedios de dimensiones
+                avg_overall = sr.overall_score
+                avg_dims = sr.dimensions  # dict: {name: score}
+
+                avg_parts = [f"Overall: **{avg_overall:.1f}**"]
+                for name, score in avg_dims.items():
+                    avg_parts.append(f"{name}: **{score:.1f}**")
+                st.caption("Promedios V2 — " + " · ".join(avg_parts))
 
 
 # ---------------------------------------------------------------------------
