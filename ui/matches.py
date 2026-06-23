@@ -284,6 +284,9 @@ def _download_matches(
         )
 
     progress.empty()
+    if saved > 0:
+        from backend.services import sync_service
+        sync_service.invalidate_caches(st.session_state)
     st.success(
         f"✅ {saved} partidas nuevas guardadas · "
         f"{skipped} omitidas (rol no ADC/TOP o ya existentes)."

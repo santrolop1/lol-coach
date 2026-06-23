@@ -20,6 +20,7 @@ import ui.coaching    as page_coaching
 import ui.draft       as page_draft
 import ui.onboarding  as page_onboarding
 from backend.services.setup_service import is_setup_complete
+from backend.services import sync_service
 
 # ---------------------------------------------------------------------------
 # CSS global
@@ -808,11 +809,65 @@ h1, h2, h3 { color: #FFFFFF !important; }
 .cfg-stat-lbl { font-size: 0.68rem; color: #6B7280; margin-top: 2px;
     letter-spacing: 0.08em; text-transform: uppercase; }
 .cfg-stat-sub { font-size: 0.72rem; color: #4B5563; margin-top: 1px; }
+
+/* ═══════════════════════════════════════════════
+   SYNC STATUS (sidebar)
+═══════════════════════════════════════════════ */
+.sb-sync-status {
+    display: flex; align-items: center; gap: 6px;
+    padding: 0.45rem 0.5rem 0;
+    font-size: 0.68rem; color: #6B7280;
+}
+.sb-sync-dot {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+}
+.sb-sync-dot.ok    { background: #22C55E; }
+.sb-sync-dot.warn  { background: #F59E0B; }
+.sb-sync-dot.error { background: #EF4444; }
 </style>
 """
 
 
 # is_setup_complete() importada desde backend.services.setup_service
+
+
+# ---------------------------------------------------------------------------
+# Sync automático
+# ---------------------------------------------------------------------------
+
+def _maybe_sync() -> None:
+    """
+    Ejecuta sync incremental si han pasado más de SYNC_INTERVAL_MINUTES
+    desde la última sync.  Usa session_state para no re-verificar en
+    cada rerun dentro del mismo intervalo.
+    """
+    from datetime import datetime
+
+    now        = datetime.now()
+    last_check = st.session_state.get("_sync_last_checked")
+
+    # Evitar chequeo redundante en reruns normales (clics, selectboxes, etc.)
+    interval_sec = sync_service.SYNC_INTERVAL_MINUTES * 60
+    if last_check and (now - last_check).total_seconds() < interval_sec:
+        return
+
+    if not sync_service.should_sync():
+        st.session_state["_sync_last_checked"] = now
+        return
+
+    # Necesitamos sync: ejecutar con spinner transparente
+    with st.spinner("🔄 Sincronizando partidas..."):
+        result = sync_service.sync_matches()
+
+    st.session_state["_sync_last_checked"] = now
+
+    if result.saved > 0:
+        sync_service.invalidate_caches(st.session_state)
+        st.toast(f"✅ {result.saved} partidas nuevas sincronizadas", icon="✅")
+    elif result.status == "rate_limited":
+        st.toast("⏳ Rate limit alcanzado. Usando datos locales.", icon="⏳")
+    elif result.status == "error" and result.error_msg:
+        st.toast(f"⚠️ Sync: {result.error_msg[:60]}", icon="⚠️")
 
 
 # ---------------------------------------------------------------------------
@@ -843,6 +898,11 @@ def main() -> None:
         st.stop()
 
     # ----------------------------------------------------------------
+    # Sync automático (incremental, solo si han pasado > 15 min)
+    # ----------------------------------------------------------------
+    _maybe_sync()
+
+    # ----------------------------------------------------------------
     # Sidebar — solo se construye cuando el setup está completo
     # ----------------------------------------------------------------
     with st.sidebar:
@@ -865,11 +925,22 @@ def main() -> None:
         puuid  = db.get_config("puuid")
         player = db.get_player(puuid) if puuid else None
         if player:
+            sync_label = sync_service.sync_status_label()
+            sync_min   = sync_service.minutes_since_last_sync()
+            sync_dot_class = (
+                "ok"   if sync_min < 60   else
+                "warn" if sync_min < 1440 else
+                "error"
+            )
             st.markdown(
                 f'<div class="sb-player-card">'
                 f'<div class="sb-player-name">👤 {player["riot_id"]}#{player["tag"]}</div>'
                 f'<div class="sb-player-level">Nivel {player.get("level", "?")}</div>'
                 f'<div class="sb-player-rank">{player.get("rank", "Sin rango")} · {player.get("lp", 0)} LP</div>'
+                f'</div>'
+                f'<div class="sb-sync-status">'
+                f'<div class="sb-sync-dot {sync_dot_class}"></div>'
+                f'<span>{sync_label}</span>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
