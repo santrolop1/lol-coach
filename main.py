@@ -781,10 +781,15 @@ def main() -> None:
         st.error(f"No se pudo inicializar la base de datos: {e}")
         st.stop()
 
-    setup_ok = is_setup_complete()
+    # ----------------------------------------------------------------
+    # Gate de acceso — debe ejecutarse ANTES de renderizar cualquier cosa
+    # ----------------------------------------------------------------
+    if not is_setup_complete():
+        page_onboarding.render()
+        st.stop()
 
     # ----------------------------------------------------------------
-    # Sidebar
+    # Sidebar — solo se construye cuando el setup está completo
     # ----------------------------------------------------------------
     with st.sidebar:
         st.markdown(
@@ -796,45 +801,29 @@ def main() -> None:
             unsafe_allow_html=True,
         )
 
-        if setup_ok:
-            page = st.radio(
-                "nav",
-                options=["🧠 Coaching", "🎮 Partidas", "🎯 Draft", "⚙️ Configuración"],
-                label_visibility="collapsed",
-                key="current_page",
-            )
+        page = st.radio(
+            "nav",
+            options=["🧠 Coaching", "🎮 Partidas", "🎯 Draft", "⚙️ Configuración"],
+            label_visibility="collapsed",
+            key="current_page",
+        )
 
-            puuid = db.get_config("puuid")
-            if puuid:
-                player = db.get_player(puuid)
-                if player:
-                    rank  = player.get("rank", "Sin rango")
-                    lp    = player.get("lp", 0)
-                    level = player.get("level", "?")
-                    st.markdown(
-                        f'<div class="sb-player-card">'
-                        f'<div class="sb-player-name">👤 {player["riot_id"]}#{player["tag"]}</div>'
-                        f'<div class="sb-player-level">Nivel {level}</div>'
-                        f'<div class="sb-player-rank">{rank} · {lp} LP</div>'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
-        else:
-            # Onboarding en curso — sidebar mínimo
+        puuid  = db.get_config("puuid")
+        player = db.get_player(puuid) if puuid else None
+        if player:
             st.markdown(
-                '<p style="color:#6B7280;font-size:0.8rem;padding:0.5rem 0.9rem;'
-                'font-weight:600;letter-spacing:0.05em;text-transform:uppercase">'
-                '⚙️ Configuración inicial</p>',
+                f'<div class="sb-player-card">'
+                f'<div class="sb-player-name">👤 {player["riot_id"]}#{player["tag"]}</div>'
+                f'<div class="sb-player-level">Nivel {player.get("level", "?")}</div>'
+                f'<div class="sb-player-rank">{player.get("rank", "Sin rango")} · {player.get("lp", 0)} LP</div>'
+                f'</div>',
                 unsafe_allow_html=True,
             )
-            page = "__onboarding__"
 
     # ----------------------------------------------------------------
     # Routing
     # ----------------------------------------------------------------
-    if not setup_ok:
-        page_onboarding.render()
-    elif page == "🧠 Coaching":
+    if page == "🧠 Coaching":
         page_coaching.render()
     elif page == "🎮 Partidas":
         page_matches.render()
