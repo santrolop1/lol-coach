@@ -172,19 +172,20 @@ def render() -> None:
     # Tabla
     rows = []
     for m in matches:
-        dur_min = m["duration_sec"] // 60
-        dur_sec = m["duration_sec"] % 60
-        cs_pm   = round(m["cs"] / max(m["duration_sec"] / 60, 1), 1)
+        dur_sec_total = m.get("duration_sec") or 1
+        dur_min = dur_sec_total // 60
+        dur_sec = dur_sec_total % 60
+        cs_pm   = round((m.get("cs") or 0) / max(dur_sec_total / 60, 1), 1)
         rows.append({
             "Resultado": "✅ Victoria" if m["result"] == "WIN" else "❌ Derrota",
-            "Campeón":   m["champion"],
-            "Rol":       m["role"],
-            "KDA":       f"{m['kills']}/{m['deaths']}/{m['assists']}",
-            "CS":        m["cs"],
+            "Campeón":   m.get("champion") or "—",
+            "Rol":       m.get("role") or "—",
+            "KDA":       f"{m.get('kills') or 0}/{m.get('deaths') or 0}/{m.get('assists') or 0}",
+            "CS":        m.get("cs") or 0,
             "CS/min":    cs_pm,
-            "Daño":      f"{m['damage']:,}",
+            "Daño":      f"{m.get('damage') or 0:,}",
             "Duración":  f"{dur_min}m {dur_sec:02d}s",
-            "Fecha":     (m["played_at"] or "")[:10],
+            "Fecha":     (m.get("played_at") or "")[:10],
         })
 
     st.dataframe(rows, use_container_width=True, hide_index=True)  # noqa: kept width

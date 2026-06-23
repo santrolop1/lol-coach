@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import db
 import scorer_v2
 import lcu.client as lcu_client
+from backend.services.match_resolver import resolve_matches
 from lcu.champ_select import parse_session, PHASE_LABELS, GAMEFLOW_LABELS
 from lcu.models import ChampSelectSession, ChampionSlot, POSITION_DISPLAY
 from backend.services.champion_analyzer import analyze_champion_pool, ChampionPoolAnalysis
@@ -46,31 +47,18 @@ _SUPPORTED_ROLES: set[str] = {"ADC", "TOP"}
 
 # ── Helpers de datos ─────────────────────────────────────────────────────────
 
-def _find_role_matches(lcu_puuid: str | None, role: str) -> list[dict]:
-    """
-    Busca partidas para el rol dado tolerando discrepancias de puuid.
-    Orden: puuid del LCU → puuid de config → cualquier puuid en la DB.
-    """
-    for puuid in filter(None, [
-        lcu_puuid,
-        db.get_config("puuid"),
-    ]):
-        matches = db.get_matches(puuid, role=role, limit=200)
-        if matches:
-            return matches
-
-    # Último recurso: buscar cualquier puuid con partidas del rol
+def _cpa_cache_version(role: str) -> str:
+    """Versión del cache: cambia cuando se descargan partidas nuevas del rol."""
     try:
         conn = sqlite3.connect("data/lol_coach.db")
         row  = conn.execute(
-            "SELECT puuid FROM match WHERE role = ? LIMIT 1", (role,)
+            "SELECT COUNT(*), MAX(match_id) FROM match WHERE role = ?", (role,)
         ).fetchone()
         conn.close()
-        if row:
-            return db.get_matches(row[0], role=role, limit=200)
+        count, latest = row if row else (0, None)
+        return f"{count}_{latest or ''}"
     except Exception:
-        pass
-    return []
+        return "0_"
 
 
 def _get_cpa(creds, lcu_role: str) -> ChampionPoolAnalysis | None:
@@ -83,14 +71,15 @@ def _get_cpa(creds, lcu_role: str) -> ChampionPoolAnalysis | None:
     if role not in _SUPPORTED_ROLES:
         return None
 
-    cache_key = f"cpa_{role}_{creds.port}_{creds.password}"
+    version   = _cpa_cache_version(role)
+    cache_key = f"cpa_{role}_{creds.port}_{version}"
     if cache_key in st.session_state:
         return st.session_state[cache_key]
 
     summoner  = lcu_client.get_current_summoner(creds)
     lcu_puuid = summoner.get("puuid") if summoner else None
 
-    matches = _find_role_matches(lcu_puuid, role)
+    matches = resolve_matches(role=role, extra_puuid=lcu_puuid)
     if not matches:
         st.session_state[cache_key] = None
         return None
@@ -152,7 +141,7 @@ def _bans_html(ban_names: list[str], label: str) -> str:
 
 def _render_status_bar(creds, phase: str, dot_class: str = "connected") -> None:
     phase_label = GAMEFLOW_LABELS.get(phase, phase)
-    phase_color = "#22C55E" if phase == "ChampSelect" else ("#F59E0B" if phase in ("Lobby", "Matchmaking", "ReadyCheck") else "#374151")
+    phase_color = "#22C55E" if phase == "ChampSelect" else ("#F59E0B" if phase in ("Lobby", "Matchmaking", "ReadyCheck") else "#6B7280")
     st.markdown(
         f'<div class="draft-status">'
         f'  <div class="draft-status-dot {dot_class}"></div>'
@@ -212,9 +201,9 @@ def _render_champ_select(session: ChampSelectSession) -> None:
         st.markdown(
             f'<div class="info-bar" style="margin-top:1.25rem">'
             f'<span style="color:#8B5CF6">👤</span>'
-            f'<span style="color:#4B5563"><b style="color:#D1D5DB">Rol:</b> {role_str}</span>'
-            f'<span style="color:#4B5563"><b style="color:#D1D5DB">Pick:</b> {champ_str}</span>'
-            f'<span style="margin-left:auto;color:#374151">'
+            f'<span style="color:#9CA3AF"><b style="color:#D1D5DB">Rol:</b> {role_str}</span>'
+            f'<span style="color:#9CA3AF"><b style="color:#D1D5DB">Pick:</b> {champ_str}</span>'
+            f'<span style="margin-left:auto;color:#6B7280">'
             f'Bans: {ally_ban_count + enemy_ban_count}/10'
             f'</span>'
             f'</div>',
@@ -232,7 +221,7 @@ def _render_draft_intelligence(advice: DraftAdvice) -> None:
 
     if not advice.pool_has_data:
         st.markdown(
-            '<div class="card" style="color:#374151;font-size:0.85rem;padding:1.1rem 1.4rem">'
+            '<div class="card" style="color:#6B7280;font-size:0.85rem;padding:1.1rem 1.4rem">'
             'Sin historial para este rol. Descarga partidas en la pestaña '
             '<b>Partidas</b> para activar las recomendaciones.'
             '</div>',
@@ -244,7 +233,7 @@ def _render_draft_intelligence(advice: DraftAdvice) -> None:
     ds = advice.current_pick_score
     if ds is not None:
         grade_colors = {"A": "#22C55E", "B": "#8B5CF6", "C": "#3B82F6", "D": "#F59E0B", "F": "#EF4444"}
-        gc = grade_colors.get(ds.grade, "#374151")
+        gc = grade_colors.get(ds.grade, "#6B7280")
 
         if ds.has_data:
             factors = [
@@ -298,7 +287,7 @@ def _render_draft_intelligence(advice: DraftAdvice) -> None:
 
         if not advice.recommendations:
             st.markdown(
-                '<div style="font-size:0.8rem;color:#374151;padding:0.4rem 0">'
+                '<div style="font-size:0.8rem;color:#6B7280;padding:0.4rem 0">'
                 'Sin recomendaciones disponibles (todos los picks baneados o sin datos).'
                 '</div>',
                 unsafe_allow_html=True,
@@ -321,7 +310,7 @@ def _render_draft_intelligence(advice: DraftAdvice) -> None:
                     f'  <span class="di-rec-tag {rec.classification}">{rec.classification}</span>'
                     f'  <div class="di-rec-conf">⬛ {conf_pct}%</div>'
                     f'</div>'
-                    f'<div style="font-size:0.68rem;color:#374151;padding:0 0.9rem 0.3rem">'
+                    f'<div style="font-size:0.68rem;color:#6B7280;padding:0 0.9rem 0.3rem">'
                     f'{rec.reason}</div>',
                     unsafe_allow_html=True,
                 )
@@ -332,7 +321,7 @@ def _render_draft_intelligence(advice: DraftAdvice) -> None:
 
         if not advice.avoid:
             st.markdown(
-                '<div style="font-size:0.8rem;color:#374151;padding:0.4rem 0">'
+                '<div style="font-size:0.8rem;color:#6B7280;padding:0.4rem 0">'
                 'Sin picks de riesgo detectados en tu historial.'
                 '</div>',
                 unsafe_allow_html=True,
@@ -469,7 +458,7 @@ def render() -> None:
                     st.markdown(
                         f'<div class="sec-header"><span class="sec-header-title">'
                         f'🧠 &nbsp;DRAFT INTELLIGENCE</span></div>'
-                        f'<div class="card" style="color:#374151;font-size:0.85rem;padding:1.1rem">'
+                        f'<div class="card" style="color:#6B7280;font-size:0.85rem;padding:1.1rem">'
                         f'Rol <b>{role_name}</b> no soportado en esta versión (ADC y TOP disponibles).'
                         f'</div>',
                         unsafe_allow_html=True,
@@ -477,7 +466,7 @@ def render() -> None:
             else:
                 st.markdown(
                     '<div class="sec-header"><span class="sec-header-title">🧠 &nbsp;DRAFT INTELLIGENCE</span></div>'
-                    '<div style="font-size:0.8rem;color:#374151;padding:0.5rem 0">'
+                    '<div style="font-size:0.8rem;color:#6B7280;padding:0.5rem 0">'
                     'Esperando asignación de rol…</div>',
                     unsafe_allow_html=True,
                 )

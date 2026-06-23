@@ -20,6 +20,7 @@ import scorer_v2
 import coaching_engine
 import coaching_rules
 from backend.services.champion_analyzer import analyze_champion_pool
+from backend.services.match_resolver import resolve_matches
 
 
 # ---------------------------------------------------------------------------
@@ -168,11 +169,11 @@ def _deaths_chart(matches: list[dict], match_scores: list) -> go.Figure:
         xaxis=dict(
             showgrid=False, zeroline=False,
             tickvals=tvals, ticktext=ttext,
-            tickfont=dict(color="#374151", size=10), showline=False,
+            tickfont=dict(color="#6B7280", size=10), showline=False,
         ),
         yaxis=dict(
             showgrid=True, gridcolor="rgba(255,255,255,0.03)",
-            zeroline=False, tickfont=dict(color="#374151", size=10),
+            zeroline=False, tickfont=dict(color="#6B7280", size=10),
             range=[0, max(max(deaths) + 2, 8)],
         ),
         showlegend=False, hovermode="x unified",
@@ -220,11 +221,11 @@ def _trend_chart(match_scores: list) -> go.Figure:
         xaxis=dict(
             showgrid=False, zeroline=False,
             tickvals=tvals, ticktext=ttext,
-            tickfont=dict(color="#374151", size=10), showline=False,
+            tickfont=dict(color="#6B7280", size=10), showline=False,
         ),
         yaxis=dict(
             showgrid=True, gridcolor="rgba(255,255,255,0.03)",
-            zeroline=False, tickfont=dict(color="#374151", size=10), range=[0, 105],
+            zeroline=False, tickfont=dict(color="#6B7280", size=10), range=[0, 105],
         ),
         showlegend=False, hovermode="x unified",
     )
@@ -360,7 +361,7 @@ def _render_level_and_trend(sr, mx: dict) -> None:
     # Calcular delta entre primera y segunda mitad
     all_sc = [ms.overall_score for ms in sr.match_scores if ms.overall_score is not None]
     trend_delta_str = "—"
-    trend_color = "#374151"
+    trend_color = "#6B7280"
     if len(all_sc) >= 6:
         mid = len(all_sc) // 2
         recent_avg = _avg(all_sc[:mid])   # más reciente (newest first)
@@ -423,12 +424,12 @@ def _render_objetivo(cr) -> None:
         f'<div class="card-label" style="display:flex;align-items:center;gap:6px">'
         f'🎯 &nbsp;TU OBJETIVO SEMANAL</div>'
         f'<div class="goal-title">{cr.primary_problem.upper()}</div>'
-        f'<div style="font-size:0.68rem;color:#374151;margin-bottom:0.5rem">Actual</div>'
+        f'<div style="font-size:0.68rem;color:#6B7280;margin-bottom:0.5rem">Actual</div>'
         f'<div class="goal-row">'
         f'<div class="goal-current">{cur_str}</div>'
         f'<div class="goal-arrow">»</div>'
         f'<div style="flex:1">'
-        f'<div style="font-size:0.68rem;color:#374151;margin-bottom:2px">Objetivo</div>'
+        f'<div style="font-size:0.68rem;color:#6B7280;margin-bottom:2px">Objetivo</div>'
         f'<div class="goal-target">{tgt_str}</div>'
         f'</div></div>'
         f'<div class="goal-bar-track">'
@@ -527,7 +528,7 @@ def _render_strengths_weaknesses(cr, role: str) -> None:
                 )
         else:
             st.markdown(
-                '<p style="font-size:0.8rem;color:#374151;margin-top:0.5rem">'
+                '<p style="font-size:0.8rem;color:#6B7280;margin-top:0.5rem">'
                 'Sigue jugando para detectar fortalezas consistentes.</p>',
                 unsafe_allow_html=True,
             )
@@ -606,30 +607,30 @@ def _render_trend_chart(sr, mx: dict, matches: list[dict]) -> None:
             f'<div class="card" style="display:flex;flex-direction:column;gap:1.25rem">'
             f'<div class="card-label" style="margin-bottom:0.25rem">SCORE</div>'
             f'<div>'
-            f'<div style="font-size:0.64rem;color:#374151;font-weight:700;letter-spacing:0.12em;text-transform:uppercase">Última</div>'
+            f'<div style="font-size:0.64rem;color:#6B7280;font-weight:700;letter-spacing:0.12em;text-transform:uppercase">Última</div>'
             f'<div style="font-size:1.8rem;font-weight:900;color:#8B5CF6;line-height:1">{last_str}</div>'
             f'</div>'
             f'<div>'
-            f'<div style="font-size:0.64rem;color:#374151;font-weight:700;letter-spacing:0.12em;text-transform:uppercase">Mejor</div>'
+            f'<div style="font-size:0.64rem;color:#6B7280;font-weight:700;letter-spacing:0.12em;text-transform:uppercase">Mejor</div>'
             f'<div style="font-size:1.8rem;font-weight:900;color:#22C55E;line-height:1">{best_str}</div>'
             f'</div>'
             f'<div>'
-            f'<div style="font-size:0.64rem;color:#374151;font-weight:700;letter-spacing:0.12em;text-transform:uppercase">Peor</div>'
+            f'<div style="font-size:0.64rem;color:#6B7280;font-weight:700;letter-spacing:0.12em;text-transform:uppercase">Peor</div>'
             f'<div style="font-size:1.8rem;font-weight:900;color:#EF4444;line-height:1">{worst_str}</div>'
             f'</div>'
             f'<div style="border-top:1px solid rgba(255,255,255,0.05);padding-top:1rem;margin-top:0.5rem">'
             f'<div class="card-label" style="margin-bottom:0.25rem">MUERTES</div>'
             f'</div>'
             f'<div>'
-            f'<div style="font-size:0.64rem;color:#374151;font-weight:700;letter-spacing:0.12em;text-transform:uppercase">Promedio</div>'
+            f'<div style="font-size:0.64rem;color:#6B7280;font-weight:700;letter-spacing:0.12em;text-transform:uppercase">Promedio</div>'
             f'<div style="font-size:1.8rem;font-weight:900;color:#F59E0B;line-height:1">{avg_deaths_str}</div>'
             f'</div>'
             f'<div>'
-            f'<div style="font-size:0.64rem;color:#374151;font-weight:700;letter-spacing:0.12em;text-transform:uppercase">Mejor</div>'
+            f'<div style="font-size:0.64rem;color:#6B7280;font-weight:700;letter-spacing:0.12em;text-transform:uppercase">Mejor</div>'
             f'<div style="font-size:1.8rem;font-weight:900;color:#22C55E;line-height:1">{best_deaths}</div>'
             f'</div>'
             f'<div>'
-            f'<div style="font-size:0.64rem;color:#374151;font-weight:700;letter-spacing:0.12em;text-transform:uppercase">Peor</div>'
+            f'<div style="font-size:0.64rem;color:#6B7280;font-weight:700;letter-spacing:0.12em;text-transform:uppercase">Peor</div>'
             f'<div style="font-size:1.8rem;font-weight:900;color:#EF4444;line-height:1">{worst_deaths}</div>'
             f'</div>'
             f'</div>',
@@ -735,7 +736,7 @@ def _render_match_summary(matches: list[dict], match_scores: list) -> None:
 # ---------------------------------------------------------------------------
 
 def _grade_color(grade: str) -> str:
-    return {"A": "#22C55E", "B": "#8B5CF6", "C": "#3B82F6", "D": "#F59E0B", "F": "#EF4444"}.get(grade, "#374151")
+    return {"A": "#22C55E", "B": "#8B5CF6", "C": "#3B82F6", "D": "#F59E0B", "F": "#EF4444"}.get(grade, "#6B7280")
 
 
 def _wr_color(wr: float) -> str:
@@ -747,7 +748,7 @@ def _wr_color(wr: float) -> str:
 def _trend_icon(slope: float) -> str:
     if slope > 1.5:  return '<span style="color:#22C55E">↑</span>'
     if slope < -1.5: return '<span style="color:#EF4444">↓</span>'
-    return '<span style="color:#374151">→</span>'
+    return '<span style="color:#6B7280">→</span>'
 
 
 def _render_champion_intelligence(cpa) -> None:
@@ -759,7 +760,7 @@ def _render_champion_intelligence(cpa) -> None:
 
     if cpa.total_games == 0:
         st.markdown(
-            '<div class="card" style="color:#374151;font-size:0.85rem;padding:1.2rem 1.5rem">'
+            '<div class="card" style="color:#6B7280;font-size:0.85rem;padding:1.2rem 1.5rem">'
             'Datos insuficientes para analizar tu champion pool.</div>',
             unsafe_allow_html=True,
         )
@@ -796,7 +797,7 @@ def _render_champion_intelligence(cpa) -> None:
             return (
                 f'<div class="ci-class-card {css_type}">'
                 f'  <div class="ci-class-tag {css_type}">{tag}</div>'
-                f'  <div class="ci-class-name" style="color:#374151">—</div>'
+                f'  <div class="ci-class-name" style="color:#6B7280">—</div>'
                 f'  <div class="ci-class-meta">Sin datos suficientes</div>'
                 f'</div>'
             )
@@ -834,11 +835,11 @@ def _render_champion_intelligence(cpa) -> None:
     if cpa.champions:
         header_html = (
             '<div class="ci-champ-row" style="border-bottom:1px solid rgba(255,255,255,0.08);padding-bottom:0.4rem;margin-bottom:0.2rem">'
-            '<div class="ci-champ-name" style="color:#374151;font-size:0.68rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase">CAMPEÓN</div>'
-            '<div class="ci-champ-games" style="color:#374151;font-size:0.68rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase">PARTIDAS</div>'
-            '<div class="ci-champ-wr" style="color:#374151;font-size:0.68rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase">WR</div>'
-            '<div class="ci-champ-score" style="color:#374151;font-size:0.68rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase">SCORE</div>'
-            '<div class="ci-champ-trend" style="color:#374151;font-size:0.68rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase">TEND.</div>'
+            '<div class="ci-champ-name" style="color:#6B7280;font-size:0.68rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase">CAMPEÓN</div>'
+            '<div class="ci-champ-games" style="color:#6B7280;font-size:0.68rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase">PARTIDAS</div>'
+            '<div class="ci-champ-wr" style="color:#6B7280;font-size:0.68rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase">WR</div>'
+            '<div class="ci-champ-score" style="color:#6B7280;font-size:0.68rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase">SCORE</div>'
+            '<div class="ci-champ-trend" style="color:#6B7280;font-size:0.68rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase">TEND.</div>'
             '</div>'
         )
         rows_html = ""
@@ -919,7 +920,7 @@ def render() -> None:
         window_opts = {"Últimas 10": 10, "Últimas 20": 20, "Últimas 30": 30, "Todas": 200}
         window_lbl  = st.selectbox("Ventana", list(window_opts.keys()), index=1, key="coaching_window", label_visibility="collapsed")
     with col_sync:
-        all_m = db.get_matches(puuid, limit=1)
+        all_m = resolve_matches(limit=1)
         if all_m and all_m[0].get("played_at"):
             last_date = all_m[0]["played_at"][:10]
             st.markdown(f'<div class="pg-sync">Datos al {last_date}</div>', unsafe_allow_html=True)
@@ -927,8 +928,8 @@ def render() -> None:
     st.markdown('<hr style="margin:0.75rem 0 1.25rem">', unsafe_allow_html=True)
 
     # ── Obtener datos ─────────────────────────────────────
-    limit       = window_opts[window_lbl]
-    all_matches = db.get_matches(puuid, limit=max(limit + 50, 200))
+    limit        = window_opts[window_lbl]
+    all_matches  = resolve_matches(limit=max(limit + 50, 200))
     role_matches = [m for m in all_matches if m.get("role") == role][:limit]
 
     if not role_matches:
@@ -1001,7 +1002,7 @@ def render() -> None:
                     unsafe_allow_html=True,
                 )
         else:
-            st.markdown('<p style="font-size:0.78rem;color:#374151">Sin datos suficientes aún.</p>', unsafe_allow_html=True)
+            st.markdown('<p style="font-size:0.78rem;color:#6B7280">Sin datos suficientes aún.</p>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
         st.markdown('<div style="height:1rem"></div>', unsafe_allow_html=True)
@@ -1051,9 +1052,9 @@ def render() -> None:
     st.markdown(
         f'<div class="info-bar">'
         f'<span style="color:#3B82F6">ℹ️</span>'
-        f'<span style="color:#374151"><b style="color:#4B5563">Acción clave:</b> '
+        f'<span style="color:#9CA3AF"><b style="color:#D1D5DB">Acción clave:</b> '
         f'{cr.training_plan.primary}</span>'
-        f'<span style="margin-left:auto;color:#1F2937">{conf_str} · N={cr.sample_size} partidas {role}</span>'
+        f'<span style="margin-left:auto;color:#6B7280">{conf_str} · N={cr.sample_size} partidas {role}</span>'
         f'</div>',
         unsafe_allow_html=True,
     )
