@@ -664,6 +664,60 @@ h1, h2, h3 { color: #FFFFFF !important; }
 .ci-insight-text { color: #9CA3AF; }
 
 /* ═══════════════════════════════════════════════
+   HERO — Coaching top section
+═══════════════════════════════════════════════ */
+.hero-card {
+    background: #0E1525; border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 12px; padding: 1.4rem 1.75rem;
+    display: flex; align-items: center; gap: 2rem;
+    margin-bottom: 1.25rem;
+}
+.hero-score-block { display: flex; align-items: baseline; gap: 0.25rem; flex-shrink: 0; }
+.hero-score       { font-size: 3.2rem; font-weight: 900; line-height: 1; }
+.hero-score-denom { font-size: 1.1rem; font-weight: 400; color: #4B5563; align-self: flex-end; margin-bottom: 3px; }
+.hero-label       { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; margin-left: 0.75rem; align-self: center; }
+.hero-divider     { width: 1px; height: 52px; background: rgba(255,255,255,0.07); flex-shrink: 0; }
+.hero-stats       { display: flex; gap: 2.25rem; flex: 1; }
+.hero-stat        { display: flex; flex-direction: column; gap: 3px; }
+.hero-stat-val    { font-size: 1.35rem; font-weight: 800; color: #FFFFFF; line-height: 1; }
+.hero-stat-lbl    { font-size: 0.62rem; color: #6B7280; text-transform: uppercase; letter-spacing: 0.1em; }
+.hero-stat-conf   { font-size: 0.82rem !important; }
+
+/* ── Compact fortalezas / debilidades ── */
+.compact-card   { padding: 1rem 1.1rem !important; }
+.compact-item   {
+    display: flex; align-items: flex-start; gap: 0.6rem;
+    padding: 0.35rem 0; border-bottom: 1px solid rgba(255,255,255,0.04);
+    line-height: 1.4;
+}
+.compact-item:last-child { border-bottom: none; }
+.compact-icon-pos { color: #22C55E; font-size: 0.78rem; font-weight: 700; flex-shrink: 0; padding-top: 1px; }
+.compact-icon-neg { color: #F59E0B; font-size: 0.78rem; font-weight: 700; flex-shrink: 0; padding-top: 1px; }
+.compact-text     { font-size: 0.8rem; color: #9CA3AF; }
+.compact-empty    { font-size: 0.78rem; color: #6B7280; padding: 0.25rem 0; }
+
+/* ── Objetivo semanal rediseño ── */
+.goal-metrics {
+    display: flex; align-items: center; gap: 1rem; margin: 0.75rem 0 0.85rem;
+}
+.goal-metric        { text-align: center; }
+.goal-metric-val    { font-size: 1.5rem; font-weight: 800; color: #FFFFFF; line-height: 1; }
+.goal-metric-lbl    { font-size: 0.6rem; color: #6B7280; text-transform: uppercase;
+    letter-spacing: 0.1em; margin-top: 3px; }
+.goal-metric-arrow  { font-size: 1.1rem; color: #4B5563; padding-bottom: 12px; }
+.goal-problem       { font-size: 0.78rem; font-weight: 700; color: #D1D5DB;
+    letter-spacing: 0.06em; text-transform: uppercase; margin: 0.1rem 0 0.5rem; }
+.goal-window        { font-size: 0.72rem; color: #6B7280; margin-top: 0.5rem; }
+
+/* Sidebar: Config secundario */
+[data-testid="stSidebar"] .stRadio > div > label:last-child {
+    opacity: 0.65 !important;
+    font-size: 0.78rem !important;
+    font-weight: 400 !important;
+}
+
+/* ═══════════════════════════════════════════════
    ONBOARDING
 ═══════════════════════════════════════════════ */
 .ob-logo {

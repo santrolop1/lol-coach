@@ -164,7 +164,7 @@ def _deaths_chart(matches: list[dict], match_scores: list) -> go.Figure:
         hovertemplate="Muertes: %{y}<extra></extra>",
     ))
     fig.update_layout(
-        height=160, margin=dict(l=0, r=10, t=5, b=25),
+        height=120, margin=dict(l=0, r=10, t=5, b=25),
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         xaxis=dict(
             showgrid=False, zeroline=False,
@@ -216,7 +216,7 @@ def _trend_chart(match_scores: list) -> go.Figure:
         hovertemplate="Score: %{y:.0f}<extra></extra>",
     ))
     fig.update_layout(
-        height=190, margin=dict(l=0, r=10, t=5, b=25),
+        height=150, margin=dict(l=0, r=10, t=5, b=25),
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         xaxis=dict(
             showgrid=False, zeroline=False,
@@ -354,91 +354,81 @@ def _render_session_alert(warning: str) -> None:
     )
 
 
-def _render_level_and_trend(sr, mx: dict) -> None:
-    score = sr.overall_score or 50.0
+def _render_hero(sr, mx: dict, cr) -> None:
+    """Hero section: score + contexto en una sola fila compacta."""
+    score        = sr.overall_score or 50.0
     label, color = _tier(score)
 
-    # Calcular delta entre primera y segunda mitad
+    n_wins = mx.get("n_wins", 0)
+    n_tot  = mx.get("n", 1)
+    wr     = n_wins / n_tot * 100 if n_tot else 0
+
+    # Tendencia numérica
     all_sc = [ms.overall_score for ms in sr.match_scores if ms.overall_score is not None]
-    trend_delta_str = "—"
+    trend_str   = "—"
     trend_color = "#6B7280"
     if len(all_sc) >= 6:
-        mid = len(all_sc) // 2
-        recent_avg = _avg(all_sc[:mid])   # más reciente (newest first)
-        older_avg  = _avg(all_sc[mid:])
-        delta = recent_avg - older_avg
-        sign = "+" if delta >= 0 else ""
-        trend_delta_str = f"{sign}{delta:.0f}"
+        mid   = len(all_sc) // 2
+        delta = _avg(all_sc[:mid]) - _avg(all_sc[mid:])
+        sign  = "+" if delta >= 0 else ""
+        trend_str   = f"{sign}{delta:.0f}"
         trend_color = "#22C55E" if delta >= 0 else "#EF4444"
 
-    col_level, col_trend = st.columns([1, 2], gap="medium")
+    conf_labels = {
+        "insufficient": "⚠️ Insuficiente",
+        "preliminary":  "📊 Preliminar",
+        "reliable":     "✅ Confiable",
+        "robust":       "✅ Robusto",
+    }
+    conf_text = conf_labels.get(cr.confidence_level, cr.confidence_level)
 
-    with col_level:
-        st.markdown(
-            '<div class="card">'
-            f'<div class="card-label">TU NIVEL ACTUAL</div>',
-            unsafe_allow_html=True,
-        )
-        fig = _ring_chart(score, color)
-        st.plotly_chart(fig, use_container_width=False, config={"displayModeBar": False})
-        n_wins = mx.get("n_wins", 0)
-        n_tot  = mx.get("n", 1)
-        wr     = n_wins / n_tot * 100 if n_tot else 0
-        st.markdown(
-            f'<div class="level-tier" style="color:{color}">{label}</div>'
-            f'<div class="level-sub">Score auto-relativo (tu historial)</div>'
-            f'<div class="level-pct">WR {wr:.0f}% · {n_wins}/{n_tot} partidas</div>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-
-    with col_trend:
-        st.markdown(
-            '<div class="card">'
-            '<div class="card-label">TENDENCIA GENERAL</div>',
-            unsafe_allow_html=True,
-        )
-        fig2 = _sparkline(sr.match_scores)
-        st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
-        trend_map = {"improving": "Mejorando ↑", "stable": "Estable →", "declining": "Bajando ↓"}
-        trend_lbl = trend_map.get(sr.trend, "Estable →")
-        st.markdown(
-            f'<div class="trend-delta" style="color:{trend_color}">{trend_delta_str}</div>'
-            f'<div class="trend-vs">vs ventana anterior · {trend_lbl}</div>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
+    st.markdown(
+        f'<div class="hero-card">'
+        f'  <div class="hero-score-block">'
+        f'    <div class="hero-score" style="color:{color}">{score:.0f}</div>'
+        f'    <div class="hero-score-denom">/100</div>'
+        f'    <div class="hero-label" style="color:{color}">{label}</div>'
+        f'  </div>'
+        f'  <div class="hero-divider"></div>'
+        f'  <div class="hero-stats">'
+        f'    <div class="hero-stat"><div class="hero-stat-val">{wr:.0f}%</div><div class="hero-stat-lbl">Winrate</div></div>'
+        f'    <div class="hero-stat"><div class="hero-stat-val">{n_wins}/{n_tot}</div><div class="hero-stat-lbl">V / P</div></div>'
+        f'    <div class="hero-stat"><div class="hero-stat-val" style="color:{trend_color}">{trend_str}</div><div class="hero-stat-lbl">Tendencia</div></div>'
+        f'    <div class="hero-stat"><div class="hero-stat-val hero-stat-conf">{conf_text}</div><div class="hero-stat-lbl">Análisis</div></div>'
+        f'  </div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
 
 def _render_objetivo(cr) -> None:
     goal = cr.weekly_goal
     if not goal:
         return
-    metric = goal.metric
+    metric  = goal.metric
     cur_str = _format_goal_value(goal.current, metric)
     tgt_str = _format_goal_value(goal.target,  metric)
     pct     = _goal_progress_pct(goal.current, goal.target, metric)
 
+    lower_is_better = metric in ("deaths", "cs_at_10")
+    raw_diff  = goal.target - goal.current
+    diff_good = (raw_diff < 0) if lower_is_better else (raw_diff > 0)
+    sign      = "+" if raw_diff >= 0 else ""
+    diff_str  = f"{sign}{_format_goal_value(abs(raw_diff), metric)}"
+    diff_color = "#22C55E" if diff_good else "#EF4444"
+
     st.markdown(
         f'<div class="goal-card">'
-        f'<div class="card-label" style="display:flex;align-items:center;gap:6px">'
-        f'🎯 &nbsp;TU OBJETIVO SEMANAL</div>'
-        f'<div class="goal-title">{cr.primary_problem.upper()}</div>'
-        f'<div style="font-size:0.68rem;color:#6B7280;margin-bottom:0.5rem">Actual</div>'
-        f'<div class="goal-row">'
-        f'<div class="goal-current">{cur_str}</div>'
-        f'<div class="goal-arrow">»</div>'
-        f'<div style="flex:1">'
-        f'<div style="font-size:0.68rem;color:#6B7280;margin-bottom:2px">Objetivo</div>'
-        f'<div class="goal-target">{tgt_str}</div>'
-        f'</div></div>'
-        f'<div class="goal-bar-track">'
-        f'<div class="goal-bar-fill" style="width:{pct:.0f}%"></div>'
-        f'</div>'
-        f'<div class="goal-meta">'
-        f'<span>Progreso <span class="goal-meta-val">{pct:.0f}%</span></span>'
-        f'<span>Ventana: <b style="color:#6B7280">{goal.window}</b></span>'
-        f'</div>'
+        f'  <div class="card-label">🎯 &nbsp;OBJETIVO SEMANAL</div>'
+        f'  <div class="goal-problem">{cr.primary_problem.upper()}</div>'
+        f'  <div class="goal-metrics">'
+        f'    <div class="goal-metric"><div class="goal-metric-val">{cur_str}</div><div class="goal-metric-lbl">Actual</div></div>'
+        f'    <div class="goal-metric-arrow">→</div>'
+        f'    <div class="goal-metric"><div class="goal-metric-val">{tgt_str}</div><div class="goal-metric-lbl">Objetivo</div></div>'
+        f'    <div class="goal-metric"><div class="goal-metric-val" style="color:{diff_color}">{diff_str}</div><div class="goal-metric-lbl">Diferencia</div></div>'
+        f'  </div>'
+        f'  <div class="goal-bar-track"><div class="goal-bar-fill" style="width:{pct:.0f}%"></div></div>'
+        f'  <div class="goal-window">Ventana: {goal.window}</div>'
         f'</div>',
         unsafe_allow_html=True,
     )
@@ -506,59 +496,41 @@ def _render_plan(cr) -> None:
 def _render_strengths_weaknesses(cr, role: str) -> None:
     col_s, col_w = st.columns(2, gap="medium")
 
-    str_icons = ["🛡️", "👥", "🌾", "⚡", "📈"]
-    wk_icons  = ["💀", "🎯", "📊", "🏯", "👁️"]
-
     with col_s:
         st.markdown(
-            '<div class="card" style="min-height:180px">'
-            '<div class="card-label">💪 &nbsp;TUS FORTALEZAS</div>',
+            '<div class="card compact-card">'
+            '<div class="card-label">💪 &nbsp;FORTALEZAS</div>',
             unsafe_allow_html=True,
         )
         if cr.strengths:
-            for i, s in enumerate(cr.strengths):
+            for s in cr.strengths:
                 st.markdown(
-                    f'<div class="str-item">'
-                    f'<div class="str-icon">{str_icons[i % len(str_icons)]}</div>'
-                    f'<div>'
-                    f'<div class="str-name">{s.name.upper()}</div>'
-                    f'<div class="str-evidence">{s.evidence}</div>'
-                    f'</div></div>',
+                    f'<div class="compact-item">'
+                    f'<span class="compact-icon-pos">✓</span>'
+                    f'<span class="compact-text">{s.evidence}</span>'
+                    f'</div>',
                     unsafe_allow_html=True,
                 )
         else:
-            st.markdown(
-                '<p style="font-size:0.8rem;color:#6B7280;margin-top:0.5rem">'
-                'Sigue jugando para detectar fortalezas consistentes.</p>',
-                unsafe_allow_html=True,
-            )
+            st.markdown('<div class="compact-empty">Sigue jugando para detectar fortalezas consistentes.</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col_w:
         st.markdown(
-            '<div class="card" style="min-height:180px">'
-            '<div class="card-label">🔥 &nbsp;TUS DEBILIDADES</div>',
+            '<div class="card compact-card">'
+            '<div class="card-label">⚠️ &nbsp;DEBILIDADES</div>',
             unsafe_allow_html=True,
         )
-        # Primary problem
-        main_icon = _problem_icon(cr.primary_problem)
-        st.markdown(
-            f'<div class="wk-item">'
-            f'<div class="wk-icon">{main_icon}</div>'
-            f'<div>'
-            f'<div class="wk-name">{cr.primary_problem.upper()}</div>'
-            f'<div class="wk-evidence">{cr.impact}</div>'
-            f'</div></div>',
-            unsafe_allow_html=True,
-        )
-        for i, imp in enumerate(cr.improvements):
+        items = [(cr.primary_problem, cr.impact)] + [
+            (imp, _impact_for(imp, role) or "Área de mejora identificada en tu historial.")
+            for imp in cr.improvements
+        ]
+        for _, evidence in items:
             st.markdown(
-                f'<div class="wk-item">'
-                f'<div class="wk-icon">{wk_icons[(i + 1) % len(wk_icons)]}</div>'
-                f'<div>'
-                f'<div class="wk-name">{imp.upper()}</div>'
-                f'<div class="wk-evidence">{_impact_for(imp, role) or "Área de mejora identificada en tu historial."}</div>'
-                f'</div></div>',
+                f'<div class="compact-item">'
+                f'<span class="compact-icon-neg">⚠</span>'
+                f'<span class="compact-text">{evidence}</span>'
+                f'</div>',
                 unsafe_allow_html=True,
             )
         st.markdown('</div>', unsafe_allow_html=True)
@@ -941,105 +913,43 @@ def render() -> None:
     cr = coaching_engine.analyze_coaching(sr, role_matches, role)
     mx = _compute_metrics(role_matches)
 
-    # ── Layout: 2 columnas principales ────────────────────
-    col_main, col_right = st.columns([2.2, 1], gap="medium")
+    # ── Nivel 0: Alerta de sesión ─────────────────────────
+    _render_session_alert(cr.session_warning)
 
-    with col_main:
-        # Alerta de sesión
-        _render_session_alert(cr.session_warning)
+    # ── Nivel 1: Hero — Score + contexto inmediato ────────
+    _render_hero(sr, mx, cr)
 
-        # Sección 1: Nivel + Tendencia
-        _render_level_and_trend(sr, mx)
-
-        # Sección 2: Problema + Plan
-        st.markdown('<div class="sec-header"><span class="sec-header-title">⚠️ &nbsp;ANÁLISIS</span></div>', unsafe_allow_html=True)
-        c_prob, c_plan = st.columns(2, gap="medium")
-        with c_prob:
-            _render_problema(cr, mx)
-        with c_plan:
-            _render_plan(cr)
-
-        # Sección 3: Fortalezas y Debilidades
-        st.markdown('<div class="sec-header"><span class="sec-header-title">💪 &nbsp;RENDIMIENTO</span></div>', unsafe_allow_html=True)
-        _render_strengths_weaknesses(cr, role)
-
-        # Sección 4: Tendencia
-        st.markdown('<div class="sec-header"><span class="sec-header-title">📈 &nbsp;EVOLUCIÓN</span></div>', unsafe_allow_html=True)
-        _render_trend_chart(sr, mx, role_matches)
-
-        # Sección 5: Datos avanzados
-        st.markdown('<div class="sec-header"><span class="sec-header-title">📊 &nbsp;DATOS AVANZADOS</span></div>', unsafe_allow_html=True)
-        st.markdown('<div class="card" style="margin-bottom:1rem">', unsafe_allow_html=True)
-        _render_datos_avanzados(mx, sr.benchmarks, role)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        # Sección 6: Champion Intelligence
-        cpa = analyze_champion_pool(role_matches, role, sr.match_scores)
-        _render_champion_intelligence(cpa)
-
-    with col_right:
-        # Objetivo semanal
+    # ── Nivel 2+3: Problema Principal + Objetivo Semanal ──
+    c_prob, c_obj = st.columns([2, 1], gap="medium")
+    with c_prob:
+        _render_problema(cr, mx)
+    with c_obj:
         _render_objetivo(cr)
 
-        st.markdown('<div style="height:1rem"></div>', unsafe_allow_html=True)
+    # ── Nivel 4: Plan de Entrenamiento ────────────────────
+    st.markdown('<div style="margin-top:0.25rem"></div>', unsafe_allow_html=True)
+    _render_plan(cr)
 
-        # Fortalezas compactas
-        st.markdown(
-            '<div class="card">'
-            '<div class="card-label">💪 &nbsp;TUS FORTALEZAS</div>',
-            unsafe_allow_html=True,
-        )
-        str_icons = ["🛡️", "👥", "🌾"]
-        if cr.strengths:
-            for i, s in enumerate(cr.strengths):
-                st.markdown(
-                    f'<div class="str-item">'
-                    f'<div class="str-icon">{str_icons[i % 3]}</div>'
-                    f'<div>'
-                    f'<div class="str-name">{s.name.upper()}</div>'
-                    f'<div class="str-evidence">{s.evidence}</div>'
-                    f'</div></div>',
-                    unsafe_allow_html=True,
-                )
-        else:
-            st.markdown('<p style="font-size:0.78rem;color:#6B7280">Sin datos suficientes aún.</p>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+    # ── Nivel 5: Fortalezas y Debilidades (compacto) ──────
+    st.markdown('<div class="sec-header"><span class="sec-header-title">💪 &nbsp;RENDIMIENTO</span></div>', unsafe_allow_html=True)
+    _render_strengths_weaknesses(cr, role)
 
-        st.markdown('<div style="height:1rem"></div>', unsafe_allow_html=True)
+    # ── Champion Intelligence ──────────────────────────────
+    cpa = analyze_champion_pool(role_matches, role, sr.match_scores)
+    _render_champion_intelligence(cpa)
 
-        # Debilidades compactas
-        st.markdown(
-            '<div class="card">'
-            '<div class="card-label">🔥 &nbsp;TUS DEBILIDADES</div>',
-            unsafe_allow_html=True,
-        )
-        wk_icons = ["💀", "🎯", "📊"]
-        main_icon = _problem_icon(cr.primary_problem)
-        st.markdown(
-            f'<div class="wk-item">'
-            f'<div class="wk-icon">{main_icon}</div>'
-            f'<div>'
-            f'<div class="wk-name">{cr.primary_problem.upper()}</div>'
-            f'<div class="wk-evidence">{cr.impact}</div>'
-            f'</div></div>',
-            unsafe_allow_html=True,
-        )
-        for i, imp in enumerate(cr.improvements):
-            st.markdown(
-                f'<div class="wk-item">'
-                f'<div class="wk-icon">{wk_icons[(i+1)%3]}</div>'
-                f'<div>'
-                f'<div class="wk-name">{imp.upper()}</div>'
-                f'<div class="wk-evidence">{_impact_for(imp, role) or "Área de mejora identificada en tu historial."}</div>'
-                f'</div></div>',
-                unsafe_allow_html=True,
-            )
-        st.markdown('</div>', unsafe_allow_html=True)
+    # ── Evolución (gráficos) ───────────────────────────────
+    st.markdown('<div class="sec-header"><span class="sec-header-title">📈 &nbsp;EVOLUCIÓN</span></div>', unsafe_allow_html=True)
+    _render_trend_chart(sr, mx, role_matches)
 
-        st.markdown('<div style="height:1rem"></div>', unsafe_allow_html=True)
+    # ── Datos Avanzados ────────────────────────────────────
+    st.markdown('<div class="sec-header"><span class="sec-header-title">📊 &nbsp;DATOS AVANZADOS</span></div>', unsafe_allow_html=True)
+    st.markdown('<div class="card" style="margin-bottom:1rem">', unsafe_allow_html=True)
+    _render_datos_avanzados(mx, sr.benchmarks, role)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-        # Resumen de partidas
-        _render_match_summary(role_matches, sr.match_scores)
+    # ── Resumen de partidas ────────────────────────────────
+    _render_match_summary(role_matches, sr.match_scores)
 
     # ── Info bar ──────────────────────────────────────────
     conf_labels = {
