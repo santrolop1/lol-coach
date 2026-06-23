@@ -69,7 +69,7 @@ venv\Scripts\activate        # Windows
 # 3. Instalar dependencias
 pip install -r requirements.txt
 
-# 4. Ejecutar
+# 4. Iniciar la aplicación
 streamlit run main.py
 ```
 
