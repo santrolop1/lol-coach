@@ -7,8 +7,10 @@ Responsabilidades:
 - Proveer funciones directas de lectura y escritura (sin Repository pattern).
 """
 
-import sqlite3
 import json
+import sqlite3
+from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -19,13 +21,31 @@ DB_DIR = Path(__file__).parent / "data"
 DB_PATH = DB_DIR / "lol_coach.db"
 
 
-def _get_conn() -> sqlite3.Connection:
-    """Abre (o crea) la conexión SQLite con row_factory para devolver dicts."""
+@contextmanager
+def _get_conn():
+    """
+    Abre (o crea) la conexión SQLite con row_factory para devolver dicts.
+
+    Usar siempre como `with _get_conn() as conn:` — además de manejar el
+    commit/rollback de la transacción (comportamiento nativo de sqlite3.Connection
+    como context manager), esto también CIERRA la conexión al salir del bloque.
+    Antes se devolvía la conexión directamente: `with` solo gestiona la
+    transacción, nunca cierra el socket/handle del archivo, así que cada
+    llamada a una función de este módulo dejaba una conexión abierta sin
+    liberar durante toda la vida del proceso.
+    """
     DB_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON;")
-    return conn
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -111,22 +131,6 @@ CREATE TABLE IF NOT EXISTS match (
 );
 """
 
-CREATE_ANALYSIS = """
-CREATE TABLE IF NOT EXISTS analysis (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    match_id     TEXT NOT NULL,
-    farm_score   REAL,
-    fight_score  REAL,
-    survival_score REAL,
-    overall_score  REAL,
-    strengths_json    TEXT,
-    weaknesses_json   TEXT,
-    created_at   TEXT,
-    FOREIGN KEY (match_id) REFERENCES match(match_id)
-);
-"""
-
-
 def _migrate_match_table(conn: sqlite3.Connection) -> int:
     """
     Añade las columnas V2 a la tabla match si no existen todavía.
@@ -149,14 +153,50 @@ def _migrate_match_table(conn: sqlite3.Connection) -> int:
     return added
 
 
+CREATE_MATCH_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_match_puuid_role_played
+ON match (puuid, role, played_at DESC);
+"""
+
+CREATE_EVENT_LOG = """
+CREATE TABLE IF NOT EXISTS event_log (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    screen     TEXT,
+    payload    TEXT,
+    created_at TEXT NOT NULL
+);
+"""
+
+CREATE_EVENT_LOG_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_event_log_session_created
+ON event_log (session_id, created_at);
+"""
+
+CREATE_FEEDBACK = """
+CREATE TABLE IF NOT EXISTS feedback (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    context    TEXT NOT NULL,
+    champion   TEXT,
+    stars      INTEGER NOT NULL,
+    comment    TEXT,
+    created_at TEXT NOT NULL
+);
+"""
+
+
 def init_db() -> None:
     """Crea todas las tablas si no existen y aplica migraciones V2."""
     with _get_conn() as conn:
         conn.execute(CREATE_CONFIG)
         conn.execute(CREATE_PLAYER)
         conn.execute(CREATE_MATCH)
-        conn.execute(CREATE_ANALYSIS)
         _migrate_match_table(conn)
+        conn.execute(CREATE_MATCH_INDEX)
+        conn.execute(CREATE_EVENT_LOG)
+        conn.execute(CREATE_EVENT_LOG_INDEX)
+        conn.execute(CREATE_FEEDBACK)
         conn.commit()
 
 
@@ -268,7 +308,7 @@ def update_match_v2(match_id: str, fields: dict) -> bool:
 def get_matches(puuid: str, role: str | None = None, limit: int = 50) -> list[dict]:
     """
     Devuelve las últimas `limit` partidas del jugador.
-    Si `role` se especifica ('ADC' | 'TOP'), filtra por rol.
+    Si `role` se especifica ('ADC' | 'TOP' | 'MID'), filtra por rol.
     """
     with _get_conn() as conn:
         if role:
@@ -303,62 +343,85 @@ def match_exists(match_id: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Analysis
+# Analítica local (Sprint 2)
+#
+# Todo se guarda únicamente en data/lol_coach.db — nunca se envía a internet.
+# No se registran datos personales: ni riot_id, ni puuid, ni api_key. Los
+# nombres de campeón no son datos personales (son públicos del juego).
 # ---------------------------------------------------------------------------
 
-def save_analysis(analysis: dict) -> None:
+def log_event(
+    session_id: str,
+    event_type: str,
+    screen: str | None = None,
+    payload: dict | None = None,
+) -> None:
     """
-    Guarda el resultado de scoring de una partida.
+    Registra un evento de uso local.
 
-    Campos esperados en `analysis`:
-        match_id, farm_score, fight_score, survival_score, overall_score,
-        strengths_json (str JSON), weaknesses_json (str JSON), created_at
+    event_type esperados: "screen_open", "screen_time", "session_start",
+    "session_end", "draft_recommendations_shown", "draft_pick_locked", "error".
     """
     with _get_conn() as conn:
         conn.execute(
             """
-            INSERT OR REPLACE INTO analysis
-                (match_id, farm_score, fight_score, survival_score, overall_score,
-                 strengths_json, weaknesses_json, created_at)
-            VALUES
-                (:match_id, :farm_score, :fight_score, :survival_score, :overall_score,
-                 :strengths_json, :weaknesses_json, :created_at)
+            INSERT INTO event_log (session_id, event_type, screen, payload, created_at)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            analysis,
+            (
+                session_id,
+                event_type,
+                screen,
+                json.dumps(payload, ensure_ascii=False) if payload else None,
+                datetime.now(timezone.utc).isoformat(),
+            ),
         )
         conn.commit()
 
 
-def get_analysis(puuid: str, role: str | None = None, limit: int = 20) -> list[dict]:
-    """
-    Devuelve los análisis de las últimas partidas del jugador,
-    joinados con la tabla match para incluir rol y campeón.
-    """
+def get_events(event_type: str | None = None, limit: int = 5000) -> list[dict]:
+    """Devuelve eventos registrados, más recientes primero."""
     with _get_conn() as conn:
-        if role:
+        if event_type:
             rows = conn.execute(
-                """
-                SELECT a.*, m.champion, m.role, m.result, m.played_at
-                FROM analysis a
-                JOIN match m ON a.match_id = m.match_id
-                WHERE m.puuid = ? AND m.role = ?
-                ORDER BY m.played_at DESC
-                LIMIT ?
-                """,
-                (puuid, role, limit),
+                "SELECT * FROM event_log WHERE event_type = ? ORDER BY created_at DESC LIMIT ?",
+                (event_type, limit),
             ).fetchall()
         else:
             rows = conn.execute(
-                """
-                SELECT a.*, m.champion, m.role, m.result, m.played_at
-                FROM analysis a
-                JOIN match m ON a.match_id = m.match_id
-                WHERE m.puuid = ?
-                ORDER BY m.played_at DESC
-                LIMIT ?
-                """,
-                (puuid, limit),
+                "SELECT * FROM event_log ORDER BY created_at DESC LIMIT ?",
+                (limit,),
             ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Feedback (Sprint 2)
+# ---------------------------------------------------------------------------
+
+def save_feedback(
+    context: str,
+    stars: int,
+    champion: str | None = None,
+    comment: str | None = None,
+) -> None:
+    """Guarda una valoración del usuario (1-5 estrellas + comentario opcional)."""
+    with _get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO feedback (context, champion, stars, comment, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (context, champion, stars, comment, datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
+
+
+def get_feedback(limit: int = 200) -> list[dict]:
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM feedback ORDER BY created_at DESC LIMIT ?", (limit,)
+        ).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -422,22 +485,5 @@ if __name__ == "__main__":
     assert matches[0]["vision_score"] == 32
     assert matches[0]["kill_participation"] == 0.68
     print("OK match V2: save/update/get OK")
-
-    # --- Prueba analysis ---
-    analysis_data = {
-        "match_id": "EUW1_123456",
-        "farm_score": 72.5,
-        "fight_score": 85.0,
-        "survival_score": 90.0,
-        "overall_score": 82.5,
-        "strengths_json": json.dumps(["Buen KDA", "Daño alto"]),
-        "weaknesses_json": json.dumps(["CS mejorable"]),
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    save_analysis(analysis_data)
-    analysis = get_analysis("abc-puuid-123")
-    assert len(analysis) == 1
-    assert analysis[0]["overall_score"] == 82.5
-    print("OK analysis: save/get OK")
 
     print("\nTodos los tests pasaron.")

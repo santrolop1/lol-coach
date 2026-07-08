@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT))
 
 import streamlit as st
 
+import analytics
 import db
 import ui.config   as page_config
 import ui.matches  as page_matches
@@ -391,15 +392,8 @@ p, .stMarkdown p { color: #9CA3AF; }
 h1, h2, h3 { color: #FFFFFF !important; }
 
 /* ═══════════════════════════════════════════════
-   LEGACY — config.py
+   ETIQUETAS COMPARTIDAS
 ═══════════════════════════════════════════════ */
-.score-hero {
-    text-align: center; padding: 2.5rem 1rem 2rem;
-    border-radius: 14px; border: 1px solid rgba(255,255,255,0.06);
-    background: #0E1525; margin-bottom: 1.5rem;
-}
-.score-value { font-size: 5.5rem; font-weight: 800; letter-spacing: -4px; line-height: 1; }
-.score-denom { font-size: 2rem; font-weight: 300; color: #374151; letter-spacing: 0; }
 .score-label { font-size: 0.8rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; margin-top: 0.85rem; }
 .sec-label {
     font-size: 0.65rem; font-weight: 700; letter-spacing: 0.16em;
@@ -407,31 +401,6 @@ h1, h2, h3 { color: #FFFFFF !important; }
     margin: 2rem 0 0.85rem; padding-bottom: 0.5rem;
     border-bottom: 1px solid rgba(255,255,255,0.05);
 }
-.veredicto {
-    padding: 1.2rem 1.5rem; border-radius: 10px;
-    border: 1px solid rgba(255,255,255,0.06); background: #0E1525;
-    font-size: 1rem; line-height: 1.8; margin-bottom: 0.5rem; color: #9CA3AF;
-}
-.obj-card {
-    border-radius: 10px; padding: 1.4rem 1.6rem;
-    border: 1px solid rgba(59,130,246,0.3); border-left: 3px solid #3B82F6;
-    background: rgba(59,130,246,0.07); margin-bottom: 1rem;
-}
-.obj-card .oc-label { font-size: 0.65rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #3B82F6; margin-bottom: 0.45rem; }
-.obj-card .oc-goal  { font-size: 1.15rem; font-weight: 700; line-height: 1.3; margin-bottom: 0.45rem; color: #FFFFFF; }
-.obj-card .oc-action { font-size: 0.88rem; color: #4B5563; line-height: 1.65; }
-.coach-card {
-    border-radius: 10px; padding: 1.2rem 1.4rem; margin-bottom: 0.75rem;
-    border: 1px solid rgba(255,255,255,0.06); background: #0E1525;
-}
-.coach-card .cc-label { font-size: 0.62rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #374151; margin-bottom: 0.35rem; }
-.coach-card .cc-stat  { font-size: 1.45rem; font-weight: 700; line-height: 1.1; margin-bottom: 0.25rem; }
-.coach-card .cc-body  { font-size: 0.86rem; color: #4B5563; line-height: 1.6; }
-.coach-card .cc-row   { margin-top: 0.5rem; font-size: 0.82rem; line-height: 1.55; }
-.coach-card .cc-cause  { color: #4B5563; font-style: italic; }
-.coach-card .cc-action { color: #6B7280; }
-.strength-card { border-left: 3px solid #F59E0B; }
-.weakness-card  { border-left: 3px solid #EF4444; }
 .mc {
     background: #0E1525; border-radius: 12px; padding: 1rem 0.75rem 0.85rem;
     text-align: center; border: 1px solid rgba(255,255,255,0.06); height: 100%;
@@ -754,6 +723,11 @@ def main() -> None:
                 )
         else:
             st.markdown('<p style="color:#374151;font-size:0.78rem;padding:0.5rem">⚠️ Cuenta no configurada</p>', unsafe_allow_html=True)
+
+    # ----------------------------------------------------------------
+    # Instrumentación local (Sprint 2) — solo local, sin datos personales
+    # ----------------------------------------------------------------
+    analytics.track_screen(page)
 
     # ----------------------------------------------------------------
     # Routing

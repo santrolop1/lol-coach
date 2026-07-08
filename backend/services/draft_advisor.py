@@ -98,23 +98,38 @@ def analyze_draft(
     session : ChampSelectSession  — datos en vivo del LCU (Sprint 7)
     cpa     : ChampionPoolAnalysis — análisis del pool histórico (Sprint 5)
     """
-    all_bans   = set(session.bans.my_team_bans + session.bans.their_team_bans)
+    # NOTA: los nombres que vienen del LCU (session.*) son "alias" (formato Riot
+    # API, ej. "KaiSa") — coinciden con match.champion en la DB. Los campos
+    # *_bans / my_champion (sin _alias) son solo para mostrar en UI, nunca para
+    # cruzar contra cpa.champions.
+    all_bans = set(session.bans.my_team_bans_alias + session.bans.their_team_bans_alias)
+
+    # Campeones ya elegidos por CUALQUIER jugador (aliado o enemigo, excluyéndome
+    # a mí mismo) — League no permite picks duplicados, así que recomendar uno
+    # ya tomado es un pick inválido, no solo subóptimo.
+    locked_champs = {
+        slot.champion_alias
+        for slot in (session.my_team + session.their_team)
+        if slot.has_pick and not slot.is_local_player
+    }
+
     trap_names = {t.champion for t in cpa.classification.trap}
     champ_lookup: dict[str, ChampionStats] = {cs.champion: cs for cs in cpa.champions}
 
     # ── Draft Score para pick actual ──────────────────────────────────────────
-    current_name = session.my_champion
+    current_display = session.my_champion
+    current_alias    = session.my_champion_alias
     current_score: DraftScore | None = None
-    if current_name:
-        current_score = _draft_score(current_name, champ_lookup.get(current_name))
+    if current_alias:
+        current_score = _draft_score(current_display, champ_lookup.get(current_alias))
 
     # ── Separar recomendaciones vs evitar ─────────────────────────────────────
     recs:  list[DraftRecommendation] = []
     avoid: list[DraftRecommendation] = []
 
     for cs in cpa.champions:
-        if cs.champion in all_bans:
-            continue   # baneado: no relevante para el draft
+        if cs.champion in all_bans or cs.champion in locked_champs:
+            continue   # baneado o ya elegido: no relevante para el draft
         pv  = _pick_value(cs)
         clf = _classification_label(cs.champion, cpa)
         if cs.champion in trap_names:
@@ -142,7 +157,7 @@ def analyze_draft(
 
     # ── Advertencias ──────────────────────────────────────────────────────────
     warnings = _generate_warnings(
-        current_name, cpa, trap_names, all_bans, champ_lookup
+        current_display, current_alias, cpa, trap_names, all_bans, champ_lookup
     )
 
     return DraftAdvice(
@@ -236,7 +251,8 @@ def _trap_reason(cs: ChampionStats) -> str:
 # ── Generación de advertencias ────────────────────────────────────────────────
 
 def _generate_warnings(
-    current_pick: str,
+    current_pick_display: str,
+    current_pick_alias: str,
     cpa: ChampionPoolAnalysis,
     trap_names: set[str],
     all_bans: set[str],
@@ -245,31 +261,31 @@ def _generate_warnings(
     warns: list[DraftWarning] = []
 
     # 1. Pick actual es un trap conocido
-    if current_pick and current_pick in trap_names:
-        cs = champ_lookup[current_pick]
+    if current_pick_alias and current_pick_alias in trap_names:
+        cs = champ_lookup[current_pick_alias]
         warns.append(DraftWarning(
-            level="critical", champion=current_pick,
+            level="critical", champion=current_pick_display,
             text=(
-                f"{current_pick}: {cs.winrate:.0%} WR en {cs.games} partidas. "
+                f"{current_pick_display}: {cs.winrate:.0%} WR en {cs.games} partidas. "
                 f"Tu historial indica que este pick te está costando LP."
             ),
         ))
 
     # 2. Pick actual sin historial
-    if current_pick and current_pick not in champ_lookup:
+    if current_pick_alias and current_pick_alias not in champ_lookup:
         warns.append(DraftWarning(
-            level="warning", champion=current_pick,
-            text=f"Sin historial de {current_pick} — no hay datos para evaluar este pick.",
+            level="warning", champion=current_pick_display,
+            text=f"Sin historial de {current_pick_display} — no hay datos para evaluar este pick.",
         ))
 
     # 3. Pick actual con muestra muy pequeña
-    if current_pick and current_pick in champ_lookup:
-        cs = champ_lookup[current_pick]
+    if current_pick_alias and current_pick_alias in champ_lookup:
+        cs = champ_lookup[current_pick_alias]
         if 0 < cs.games < _SAMPLE_WARNING_MIN:
             warns.append(DraftWarning(
-                level="warning", champion=current_pick,
+                level="warning", champion=current_pick_display,
                 text=(
-                    f"{current_pick}: solo {cs.games} "
+                    f"{current_pick_display}: solo {cs.games} "
                     f"partida{'s' if cs.games > 1 else ''} — "
                     f"muestra insuficiente para predicciones confiables."
                 ),

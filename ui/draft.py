@@ -12,7 +12,6 @@ Auto-refresh:
 
 from __future__ import annotations
 
-import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -21,6 +20,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import analytics
 import db
 import scorer_v2
 import lcu.client as lcu_client
@@ -41,15 +41,20 @@ _LCU_TO_ROLE: dict[str, str] = {
 }
 
 # Solo estos roles tienen datos en scorer_v2 (versión actual)
-_SUPPORTED_ROLES: set[str] = {"ADC", "TOP"}
+_SUPPORTED_ROLES: set[str] = set(scorer_v2.SUPPORTED_ROLES)
 
 
 # ── Helpers de datos ─────────────────────────────────────────────────────────
 
 def _find_role_matches(lcu_puuid: str | None, role: str) -> list[dict]:
     """
-    Busca partidas para el rol dado tolerando discrepancias de puuid.
-    Orden: puuid del LCU → puuid de config → cualquier puuid en la DB.
+    Busca partidas para el rol dado tolerando discrepancias de puuid entre
+    el LCU y la configuración local (ej. tras reinstalar el cliente).
+    Orden: puuid del LCU → puuid de config.
+
+    NO cae a "cualquier puuid con partidas de este rol" — en una máquina
+    compartida o tras cambiar de cuenta, eso podía mostrar el pool de
+    campeones de otra persona como si fuera el del usuario actual.
     """
     for puuid in filter(None, [
         lcu_puuid,
@@ -58,18 +63,6 @@ def _find_role_matches(lcu_puuid: str | None, role: str) -> list[dict]:
         matches = db.get_matches(puuid, role=role, limit=200)
         if matches:
             return matches
-
-    # Último recurso: buscar cualquier puuid con partidas del rol
-    try:
-        conn = sqlite3.connect("data/lol_coach.db")
-        row  = conn.execute(
-            "SELECT puuid FROM match WHERE role = ? LIMIT 1", (role,)
-        ).fetchone()
-        conn.close()
-        if row:
-            return db.get_matches(row[0], role=role, limit=200)
-    except Exception:
-        pass
     return []
 
 
@@ -77,7 +70,7 @@ def _get_cpa(creds, lcu_role: str) -> ChampionPoolAnalysis | None:
     """
     Carga y cachea ChampionPoolAnalysis para el rol detectado.
     Cache key: rol + (puerto, password) para invalidar en reinicios del cliente.
-    Solo soporta ADC y TOP en la versión actual.
+    Solo soporta los roles de scorer_v2.SUPPORTED_ROLES (ADC, TOP, MID).
     """
     role = _LCU_TO_ROLE.get(lcu_role, "")
     if role not in _SUPPORTED_ROLES:
@@ -222,6 +215,44 @@ def _render_champ_select(session: ChampSelectSession) -> None:
         )
 
 
+def _track_draft_intelligence(session: ChampSelectSession, advice: DraftAdvice, role_name: str) -> None:
+    """
+    Registra (Sprint 2, solo local) qué recomendaciones se mostraron y si el
+    pick final del jugador estaba entre ellas. Deduplicado con session_state
+    para no repetir el mismo evento en cada rerun de 750ms del polling.
+    """
+    rec_snapshot = tuple(r.champion for r in advice.recommendations)
+    if rec_snapshot and st.session_state.get("_di_last_shown") != rec_snapshot:
+        st.session_state["_di_last_shown"] = rec_snapshot
+        analytics.track_event(
+            "draft_recommendations_shown", screen="Draft",
+            payload={"role": role_name, "champions": list(rec_snapshot)},
+        )
+
+    pick_alias = session.my_champion_alias
+    if pick_alias and not st.session_state.get("_di_pick_logged"):
+        st.session_state["_di_pick_logged"] = True
+        recommended_aliases = {r.champion for r in advice.recommendations}
+        avoid_aliases        = {r.champion for r in advice.avoid}
+        was_recommended = pick_alias in recommended_aliases
+        analytics.track_event(
+            "draft_pick_locked", screen="Draft",
+            payload={
+                "role": role_name,
+                "champion": session.my_champion,
+                "was_recommended": was_recommended,
+                "was_flagged_trap": pick_alias in avoid_aliases,
+                "had_history": advice.current_pick_score.has_data if advice.current_pick_score else False,
+            },
+        )
+        # Se conserva para el prompt de feedback post-partida (Sprint 2).
+        st.session_state["_last_draft_pick"] = {
+            "champion": session.my_champion,
+            "was_recommended": was_recommended,
+        }
+        st.session_state["_feedback_submitted"] = False
+
+
 def _render_draft_intelligence(advice: DraftAdvice) -> None:
     """Sección Sprint 8: Draft Intelligence — recomendaciones basadas en historial."""
     role = _LCU_TO_ROLE.get(advice.role, advice.role.upper())
@@ -362,6 +393,34 @@ def _render_draft_intelligence(advice: DraftAdvice) -> None:
             )
 
 
+def _render_post_game_feedback() -> None:
+    """
+    Prompt de feedback (Sprint 2): solo aparece si hubo un pick registrado en
+    el último Champ Select y todavía no se envió feedback para esa partida.
+    Se guarda únicamente en SQLite local (tabla feedback).
+    """
+    pick = st.session_state.get("_last_draft_pick")
+    if not pick or st.session_state.get("_feedback_submitted"):
+        return
+
+    st.markdown(
+        '<div class="sec-header"><span class="sec-header-title">💬 &nbsp;TU OPINIÓN</span></div>',
+        unsafe_allow_html=True,
+    )
+    with st.form(key="draft_feedback_form"):
+        st.markdown(f"¿La recomendación de Draft Intelligence para **{pick['champion']}** te fue útil?")
+        stars = st.slider("Valoración", min_value=1, max_value=5, value=3, key="draft_feedback_stars")
+        comment = st.text_input("¿Qué mejorarías? (opcional)", key="draft_feedback_comment")
+        submitted = st.form_submit_button("Enviar feedback")
+        if submitted:
+            db.save_feedback(
+                "draft_pick", stars=stars,
+                champion=pick["champion"], comment=comment or None,
+            )
+            st.session_state["_feedback_submitted"] = True
+            st.success("¡Gracias! Tu feedback se guardó localmente.")
+
+
 def _render_waiting(phase: str) -> None:
     phase_label = GAMEFLOW_LABELS.get(phase, phase)
 
@@ -394,6 +453,9 @@ def _render_waiting(phase: str) -> None:
         f'</div>',
         unsafe_allow_html=True,
     )
+
+    if phase in ("WaitingForStats", "PreEndOfGame", "EndOfGame"):
+        _render_post_game_feedback()
 
 
 def _render_disconnected() -> None:
@@ -460,20 +522,32 @@ def render() -> None:
             # ── Draft Intelligence (Sprint 8) ──────────────────────────────
             st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
             if session.my_role:
-                cpa = _get_cpa(creds, session.my_role)
-                if cpa is not None:
-                    advice = analyze_draft(session, cpa)
-                    _render_draft_intelligence(advice)
-                elif _LCU_TO_ROLE.get(session.my_role, "") not in _SUPPORTED_ROLES:
-                    role_name = _LCU_TO_ROLE.get(session.my_role, session.my_role.upper())
+                role_name = _LCU_TO_ROLE.get(session.my_role, session.my_role.upper())
+                if role_name not in _SUPPORTED_ROLES:
                     st.markdown(
                         f'<div class="sec-header"><span class="sec-header-title">'
                         f'🧠 &nbsp;DRAFT INTELLIGENCE</span></div>'
                         f'<div class="card" style="color:#374151;font-size:0.85rem;padding:1.1rem">'
-                        f'Rol <b>{role_name}</b> no soportado en esta versión (ADC y TOP disponibles).'
+                        f'Rol <b>{role_name}</b> no soportado en esta versión (ADC, TOP y MID disponibles).'
                         f'</div>',
                         unsafe_allow_html=True,
                     )
+                else:
+                    cpa = _get_cpa(creds, session.my_role)
+                    if cpa is not None:
+                        advice = analyze_draft(session, cpa)
+                        _render_draft_intelligence(advice)
+                        _track_draft_intelligence(session, advice, role_name)
+                    else:
+                        st.markdown(
+                            f'<div class="sec-header"><span class="sec-header-title">'
+                            f'🧠 &nbsp;DRAFT INTELLIGENCE — {role_name}</span></div>'
+                            '<div class="card" style="color:#374151;font-size:0.85rem;padding:1.1rem 1.4rem">'
+                            'Sin historial para este rol. Descarga partidas en la pestaña '
+                            '<b>Partidas</b> para activar las recomendaciones.'
+                            '</div>',
+                            unsafe_allow_html=True,
+                        )
             else:
                 st.markdown(
                     '<div class="sec-header"><span class="sec-header-title">🧠 &nbsp;DRAFT INTELLIGENCE</span></div>'
@@ -487,6 +561,10 @@ def render() -> None:
         st.rerun()
 
     else:
+        # Salimos de Champ Select (o nunca entramos) — resetea los flags de
+        # dedup para que la próxima sesión de draft se registre de nuevo.
+        st.session_state.pop("_di_last_shown", None)
+        st.session_state.pop("_di_pick_logged", None)
         _render_waiting(phase)
         # Refresh lento cuando esperamos que empiece champ select
         time.sleep(2.0)

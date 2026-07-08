@@ -9,11 +9,11 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import analytics
 import db
 import scorer_v2
 from riot_api import RiotClient, RiotAPIError
 from parser import parse_match
-from scorer import calculate_score
 
 
 # ---------------------------------------------------------------------------
@@ -28,8 +28,13 @@ def _score_color(score: float) -> str:
     return "#EF4444"
 
 
-def _match_card_html(m: dict) -> str:
-    """Genera el HTML de una tarjeta de partida individual."""
+def _match_card_html(m: dict, ref_matches: list[dict]) -> str:
+    """
+    Genera el HTML de una tarjeta de partida individual.
+
+    ref_matches: partidas de referencia (cualquier rol) para el percentile
+    scoring de scorer_v2 — internamente se filtran por el rol de `m`.
+    """
     is_win    = m["result"] == "WIN"
     css_cls   = "mc mc-win" if is_win else "mc mc-loss"
     res_cls   = "mc-res mc-res-win" if is_win else "mc-res mc-res-loss"
@@ -37,17 +42,16 @@ def _match_card_html(m: dict) -> str:
 
     kda = f"{m['kills']}/{m['deaths']}/{m['assists']}"
 
-    sc    = calculate_score(m)
-    score = sc.overall_score
-    color = _score_color(score)
+    ms    = scorer_v2.score_match(m, ref_matches)
+    score = ms.overall_score if ms else None
+    color = _score_color(score) if score is not None else "#374151"
+    score_str = f"{score:.0f}" if score is not None else "—"
 
-    dims = {
-        "Farm":  sc.farm_score,
-        "Superv": sc.survival_score,
-        "Pelea":  sc.fight_score,
-    }
-    best  = max(dims, key=dims.get)
-    worst = min(dims, key=dims.get)
+    dims = {d.name: d.score for d in ms.dimensions if d.score is not None} if ms else {}
+    best  = max(dims, key=dims.get) if dims else None
+    worst = min(dims, key=dims.get) if dims else None
+    best_tag  = f'<div class="mc-tag mc-pos">✓ {best}</div>'   if best  else ""
+    worst_tag = f'<div class="mc-tag mc-neg">✗ {worst}</div>'  if worst else ""
 
     return f"""
 <div class="{css_cls}">
@@ -55,9 +59,9 @@ def _match_card_html(m: dict) -> str:
     <div class="mc-champ">{m['champion']}</div>
     <div class="mc-role">{m['role']}</div>
     <div class="mc-kda">{kda}</div>
-    <div class="mc-score" style="color:{color}">{score:.0f}</div>
-    <div class="mc-tag mc-pos">✓ {best}</div>
-    <div class="mc-tag mc-neg">✗ {worst}</div>
+    <div class="mc-score" style="color:{color}">{score_str}</div>
+    {best_tag}
+    {worst_tag}
 </div>
 """
 
@@ -90,8 +94,8 @@ def render() -> None:
     # Últimas 5 partidas — tarjetas visuales
     # ----------------------------------------------------------------
     all_role_matches = db.get_matches(puuid, limit=100)
-    adc_top = [m for m in all_role_matches if m["role"] in ("ADC", "TOP")]
-    last_5  = adc_top[:5]
+    supported = [m for m in all_role_matches if m["role"] in scorer_v2.SUPPORTED_ROLES]
+    last_5    = supported[:5]
 
     if last_5:
         st.markdown('<div class="sec-label">Últimas 5 partidas</div>',
@@ -99,7 +103,7 @@ def render() -> None:
         cols = st.columns(len(last_5))
         for col, m in zip(cols, last_5):
             with col:
-                st.markdown(_match_card_html(m), unsafe_allow_html=True)
+                st.markdown(_match_card_html(m, supported), unsafe_allow_html=True)
 
     # ----------------------------------------------------------------
     # Descarga de partidas
@@ -140,7 +144,7 @@ def render() -> None:
 
     col1, col2 = st.columns(2)
     with col1:
-        role_filter = st.selectbox("Filtrar por rol", ["Todos", "ADC", "TOP"])
+        role_filter = st.selectbox("Filtrar por rol", ["Todos", *scorer_v2.SUPPORTED_ROLES])
     with col2:
         role_arg   = None if role_filter == "Todos" else role_filter
         all_matches = db.get_matches(puuid, role=role_arg, limit=100)
@@ -192,7 +196,7 @@ def render() -> None:
     # ----------------------------------------------------------------
     # Análisis detallado V2 (solo cuando hay un rol concreto)
     # ----------------------------------------------------------------
-    if role_filter in ("ADC", "TOP"):
+    if role_filter in scorer_v2.SUPPORTED_ROLES:
         role_matches_v2 = [m for m in matches if m["role"] == role_filter]
         if len(role_matches_v2) >= 5:
             with st.expander(f"📊 Análisis detallado V2 — {role_filter} ({len(role_matches_v2)} partidas)"):
@@ -241,6 +245,8 @@ def _download_matches(
             match_ids = client.get_match_ids(puuid, count=count, queue=queue)
         except RiotAPIError as e:
             st.error(f"Error obteniendo partidas: {e}")
+            analytics.track_event("error", screen="Partidas",
+                                   payload={"error_type": "RiotAPIError", "stage": "get_match_ids"})
             return
 
     if not match_ids:
@@ -272,9 +278,13 @@ def _download_matches(
 
         except RiotAPIError as e:
             st.warning(f"No se pudo descargar {match_id}: {e}")
+            analytics.track_event("error", screen="Partidas",
+                                   payload={"error_type": "RiotAPIError", "stage": "get_match"})
             skipped += 1
         except (KeyError, ValueError):
             st.warning(f"Partida {match_id}: formato inesperado, omitida.")
+            analytics.track_event("error", screen="Partidas",
+                                   payload={"error_type": "ParseError", "stage": "parse_match"})
             skipped += 1
 
         progress.progress(
@@ -285,6 +295,6 @@ def _download_matches(
     progress.empty()
     st.success(
         f"✅ {saved} partidas nuevas guardadas · "
-        f"{skipped} omitidas (rol no ADC/TOP o ya existentes)."
+        f"{skipped} omitidas (rol no soportado o ya existentes)."
     )
     st.rerun()

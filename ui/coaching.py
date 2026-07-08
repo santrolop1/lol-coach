@@ -2,7 +2,7 @@
 ui/coaching.py — Página principal de coaching personalizado.
 
 Conecta scorer_v2 + coaching_engine con la interfaz premium.
-Roles soportados: ADC, TOP.
+Roles soportados: ADC, TOP, MID.
 """
 
 import sys
@@ -45,6 +45,8 @@ def _problem_icon(name: str) -> str:
     if "inconsist" in n:                 return "📊"
     if "presión" in n or "presion" in n or "torre" in n: return "🏯"
     if "ventaja" in n or "conversión" in n: return "⚔️"
+    if "daño" in n or "impacto" in n:    return "⚔️"
+    if "presencia" in n or "mapa" in n:  return "🗺️"
     return "⚠️"
 
 
@@ -293,15 +295,15 @@ def _problem_stats(cr, mx: dict) -> tuple:
     metric = goal.metric if goal else "deaths"
 
     if metric == "deaths":
-        main = f"{mx['deaths']:.1f}" if mx.get("deaths") else "—"
+        main = f"{mx['deaths']:.1f}" if mx.get("deaths") is not None else "—"
         lbl  = "Muertes / partida"
-        wv   = f"{mx['deaths_win']:.1f}" if mx.get("deaths_win") else "—"
-        lv   = f"{mx['deaths_loss']:.1f}" if mx.get("deaths_loss") else "—"
+        wv   = f"{mx['deaths_win']:.1f}" if mx.get("deaths_win") is not None else "—"
+        lv   = f"{mx['deaths_loss']:.1f}" if mx.get("deaths_loss") is not None else "—"
     elif metric == "kill_participation":
-        main = f"{mx['kp']:.0%}" if mx.get("kp") else "—"
+        main = f"{mx['kp']:.0%}" if mx.get("kp") is not None else "—"
         lbl  = "KP promedio"
-        wv   = f"{mx['kp_win']:.0%}" if mx.get("kp_win") else "—"
-        lv   = f"{mx['kp_loss']:.0%}" if mx.get("kp_loss") else "—"
+        wv   = f"{mx['kp_win']:.0%}" if mx.get("kp_win") is not None else "—"
+        lv   = f"{mx['kp_loss']:.0%}" if mx.get("kp_loss") is not None else "—"
     elif metric in ("cs_at_10", "turret_takedowns", "consistency_score", "objective_damage_per_min"):
         main = f"{goal.current:.1f}" if goal else "—"
         lbl  = "Valor actual"
@@ -318,9 +320,7 @@ def _problem_stats(cr, mx: dict) -> tuple:
 
 def _impact_for(display_name: str, role: str) -> str:
     """Devuelve el texto de impacto real desde coaching_rules para un display_name dado."""
-    problem_map = (
-        coaching_rules.ADC_PROBLEMS if role == "ADC" else coaching_rules.TOP_PROBLEMS
-    )
+    problem_map = coaching_rules.PROBLEMS_BY_ROLE.get(role, coaching_rules.ADC_PROBLEMS)
     for rule in problem_map.values():
         if rule.get("display_name") == display_name:
             return rule.get("impact", "")
@@ -651,7 +651,7 @@ def _render_datos_avanzados(mx: dict, benchmarks, role: str) -> None:
         return [25, 50, 75, 90][min(below, 3)]
 
     # Definir métricas según rol
-    if role == "ADC":
+    if role in ("ADC", "MID"):
         metrics = [
             ("CS / MIN",      mx.get("cs_pm"),     "cs_per_min",     "{:.1f}"),
             ("DAÑO / MIN",    mx.get("dmg_pm"),     "damage_per_min", "{:.0f}"),
@@ -816,16 +816,19 @@ def _render_champion_intelligence(cpa) -> None:
     main_tag = "MAIN + TRAP" if (clf.main and clf.main.champion in trap_names) else "MAIN"
     main_css = "trap" if (clf.main and clf.main.champion in trap_names) else "main"
 
+    # El main ya se muestra como "MAIN + TRAP" arriba cuando coincide — la
+    # tarjeta TRAP debe mostrar otro campeón trap distinto, si existe, en vez
+    # de mirar solo clf.trap[0] (que podía coincidir con el main y ocultar un
+    # segundo trap real).
+    main_name  = clf.main.champion if clf.main else None
+    other_trap = next((t for t in clf.trap if t.champion != main_name), None)
+
     st.markdown(
         f'<div class="ci-class-grid">'
         + _class_card(main_css,    main_tag,    clf.main)
         + _class_card("carry",     "CARRY",     clf.carry)
         + _class_card("comfort",   "COMFORT",   clf.comfort)
-        + (
-            _class_card("trap", "TRAP", clf.trap[0])
-            if clf.trap and (clf.main is None or clf.trap[0].champion != clf.main.champion)
-            else _class_card("trap", "TRAP", None)
-        )
+        + _class_card("trap",      "TRAP",      other_trap)
         + f'</div>',
         unsafe_allow_html=True,
     )
@@ -914,7 +917,7 @@ def render() -> None:
             unsafe_allow_html=True,
         )
     with col_rol:
-        role = st.selectbox("Rol", ["ADC", "TOP"], key="coaching_role", label_visibility="collapsed")
+        role = st.selectbox("Rol", list(scorer_v2.SUPPORTED_ROLES), key="coaching_role", label_visibility="collapsed")
     with col_win:
         window_opts = {"Últimas 10": 10, "Últimas 20": 20, "Últimas 30": 30, "Todas": 200}
         window_lbl  = st.selectbox("Ventana", list(window_opts.keys()), index=1, key="coaching_window", label_visibility="collapsed")
@@ -933,6 +936,14 @@ def render() -> None:
 
     if not role_matches:
         st.info(f"No hay partidas de {role} guardadas. Ve a **Partidas** y descarga tu historial.")
+        return
+
+    if len(role_matches) < 5:
+        st.info(
+            f"Tienes {len(role_matches)} partida{'s' if len(role_matches) != 1 else ''} de {role}. "
+            f"El coaching necesita un mínimo de 5 para generar un diagnóstico con base estadística "
+            f"— descarga más partidas en **Partidas**."
+        )
         return
 
     # ── Calcular ──────────────────────────────────────────

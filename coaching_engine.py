@@ -6,8 +6,8 @@ PRINCIPIOS:
     - Cada diagnóstico está respaldado por datos calculados desde el historial.
     - Umbrales documentados con su fuente (research vs player_relative).
 
-ROLES IMPLEMENTADOS: ADC, TOP
-PENDIENTE: MID, JUNGLE, SUPPORT, Champion Select, Meta
+ROLES IMPLEMENTADOS: ADC, TOP, MID
+PENDIENTE: JUNGLE, SUPPORT, Champion Select, Meta
 
 FLUJO:
     match_history + ScoreResultV2 → reglas → CoachingResult
@@ -139,6 +139,17 @@ def _obj_per_min_list(matches: list[dict]) -> list[float]:
     return result
 
 
+def _dmg_per_min_list(matches: list[dict]) -> list[float]:
+    """Daño a campeones por minuto para cada partida."""
+    result = []
+    for m in matches:
+        dmg = m.get("damage")
+        dur = m.get("duration_sec")
+        if dmg is not None and dur and dur > 0:
+            result.append(float(dmg) / (float(dur) / 60.0))
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Helpers de temporalidad y tilt
 # ---------------------------------------------------------------------------
@@ -254,6 +265,155 @@ def _detect_session_warning(role_matches: list[dict]) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
+# Evaluadores compartidos entre roles
+# ---------------------------------------------------------------------------
+# Estos bloques eran idénticos en ADC y TOP (solo cambiaban la clave del
+# problema y el multiplicador de severidad). Extraídos al agregar MID para
+# no mantener una tercera copia. El comportamiento es exactamente el mismo.
+
+def _eval_tilt(role_matches: list[dict], thresh: dict) -> Optional[dict]:
+    """TILT_SESSION: derrotas consecutivas con decaimiento temporal."""
+    recent = sorted(role_matches, key=lambda m: m.get("played_at", ""), reverse=True)
+    consecutive, same_day, most_recent_date = _count_consecutive_losses(recent)
+    tilt_val = thresh.get("tilt_consecutive_losses", {}).get("value", 4)
+    hours    = _hours_since((recent[0].get("played_at") or "") if recent else "")
+    sev_tilt = _tilt_severity(hours, consecutive, same_day, tilt_val)
+    if sev_tilt <= 0:
+        return None
+    return {
+        "key": "TILT_SESSION",
+        "triggered": True,
+        "severity": sev_tilt,
+        "raw_data": {
+            "consecutive_losses": consecutive,
+            "same_day": same_day,
+            "date": most_recent_date,
+            "hours_since": hours,
+        },
+    }
+
+
+def _eval_high_deaths(
+    role_matches: list[dict],
+    wins: list[dict],
+    losses: list[dict],
+    benchmarks: sv2.PlayerBenchmarks,
+    thresh: dict,
+    key: str,
+    severity_mult: float,
+) -> Optional[dict]:
+    """Exceso de muertes: promedio por encima del umbral de research."""
+    all_deaths  = _vals(role_matches, "deaths")
+    avg_deaths  = _avg(all_deaths)
+    death_thresh = thresh["deaths_high"]["value"]
+
+    if avg_deaths is None or avg_deaths <= death_thresh:
+        return None
+    return {
+        "key": key,
+        "triggered": True,
+        "severity": min(100.0, (avg_deaths - death_thresh) * severity_mult),
+        "raw_data": {
+            "avg_deaths":  avg_deaths,
+            "win_deaths":  _avg(_vals(wins, "deaths")),
+            "loss_deaths": _avg(_vals(losses, "deaths")),
+            "threshold":   death_thresh,
+            "n":           len(all_deaths),
+            "n_wins":      len(wins),
+            "n_losses":    len(losses),
+            "bm":          benchmarks.metrics.get("deaths"),
+        },
+    }
+
+
+def _eval_bad_lane_phase(
+    role_matches: list[dict],
+    benchmarks: sv2.PlayerBenchmarks,
+    thresh: dict,
+) -> Optional[dict]:
+    """BAD_LANE_PHASE: CS@10 por debajo del umbral de research (solo lanes)."""
+    all_cs10 = _vals(role_matches, "cs_at_10")
+    avg_cs10 = _avg(all_cs10)
+    cs10_thresh = thresh["cs_at_10_low"]["value"]
+
+    if avg_cs10 is None or len(all_cs10) < 3 or avg_cs10 >= cs10_thresh:
+        return None
+    return {
+        "key": "BAD_LANE_PHASE",
+        "triggered": True,
+        "severity": min(100.0, (cs10_thresh - avg_cs10) * 3.0),
+        "raw_data": {
+            "avg_cs10":  avg_cs10,
+            "threshold": cs10_thresh,
+            "n":         len(all_cs10),
+            "bm":        benchmarks.metrics.get("cs_at_10"),
+        },
+    }
+
+
+def _eval_inconsistency(
+    score_result: sv2.ScoreResultV2,
+    thresh: dict,
+    key: str,
+) -> Optional[dict]:
+    """Inconsistencia: consistency score bajo el umbral híbrido."""
+    consistency = score_result.consistency_score
+    cons_thresh = thresh.get("consistency_low", {}).get("value", 65.0)
+
+    if consistency is None or consistency >= cons_thresh:
+        return None
+    overall_scores = sorted(
+        ms.overall_score
+        for ms in score_result.match_scores
+        if ms.overall_score is not None
+    )
+    n_os = len(overall_scores)
+    floor_s   = overall_scores[max(0, int(n_os * 0.25))] if n_os >= 4 else None
+    ceiling_s = overall_scores[max(0, int(n_os * 0.75))] if n_os >= 4 else None
+    return {
+        "key": key,
+        "triggered": True,
+        "severity": min(100.0, (cons_thresh - consistency) * 2.0),
+        "raw_data": {
+            "consistency":   consistency,
+            "threshold":     cons_thresh,
+            "floor_score":   floor_s,
+            "ceiling_score": ceiling_s,
+            "n":             n_os,
+        },
+    }
+
+
+def _eval_low_kp(
+    role_matches: list[dict],
+    wins: list[dict],
+    losses: list[dict],
+    benchmarks: sv2.PlayerBenchmarks,
+    thresh: dict,
+) -> Optional[dict]:
+    """LOW_KILL_PARTICIPATION: KP promedio bajo el umbral de research."""
+    all_kp  = _vals(role_matches, "kill_participation")
+    avg_kp  = _avg(all_kp)
+    kp_thresh = thresh["kill_participation_low"]["value"]
+
+    if avg_kp is None or avg_kp >= kp_thresh:
+        return None
+    return {
+        "key": "LOW_KILL_PARTICIPATION",
+        "triggered": True,
+        "severity": min(100.0, (kp_thresh - avg_kp) * 200.0),
+        "raw_data": {
+            "avg_kp":    avg_kp,
+            "win_kp":    _avg(_vals(wins, "kill_participation")),
+            "loss_kp":   _avg(_vals(losses, "kill_participation")),
+            "threshold": kp_thresh,
+            "n":         len(all_kp),
+            "bm":        benchmarks.metrics.get("kill_participation"),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
 # Evaluación de problemas — ADC
 # ---------------------------------------------------------------------------
 
@@ -276,71 +436,17 @@ def _evaluate_adc_problems(
     thresh = rules.THRESHOLDS["ADC"]
 
     # --- TILT / RACHA ---
-    recent = sorted(role_matches, key=lambda m: m.get("played_at", ""), reverse=True)
-    consecutive, same_day, most_recent_date = _count_consecutive_losses(recent)
-    tilt_val = thresh["tilt_consecutive_losses"]["value"]
-    hours    = _hours_since((recent[0].get("played_at") or "") if recent else "")
-    sev_tilt = _tilt_severity(hours, consecutive, same_day, tilt_val)
-    if sev_tilt > 0:
-        problems.append({
-            "key": "TILT_SESSION",
-            "triggered": True,
-            "severity": sev_tilt,
-            "raw_data": {
-                "consecutive_losses": consecutive,
-                "same_day": same_day,
-                "date": most_recent_date,
-                "hours_since": hours,
-            },
-        })
+    if (p := _eval_tilt(role_matches, thresh)):
+        problems.append(p)
 
     # --- EXCESO DE MUERTES ---
-    all_deaths  = _vals(role_matches, "deaths")
-    win_deaths  = _vals(wins, "deaths")
-    loss_deaths = _vals(losses, "deaths")
-    avg_deaths  = _avg(all_deaths)
-    death_thresh = thresh["deaths_high"]["value"]  # 6.0
-
-    if avg_deaths is not None and avg_deaths > death_thresh:
-        severity = min(100.0, (avg_deaths - death_thresh) * 20.0)
-        problems.append({
-            "key": "HIGH_DEATHS",
-            "triggered": True,
-            "severity": severity,
-            "raw_data": {
-                "avg_deaths":   avg_deaths,
-                "win_deaths":   _avg(win_deaths),
-                "loss_deaths":  _avg(loss_deaths),
-                "threshold":    death_thresh,
-                "n":            len(all_deaths),
-                "n_wins":       len(wins),
-                "n_losses":     len(losses),
-                "bm":           benchmarks.metrics.get("deaths"),
-            },
-        })
+    if (p := _eval_high_deaths(role_matches, wins, losses, benchmarks,
+                               thresh, "HIGH_DEATHS", severity_mult=20.0)):
+        problems.append(p)
 
     # --- BAJA PARTICIPACIÓN EN PELEAS ---
-    all_kp  = _vals(role_matches, "kill_participation")
-    win_kp  = _vals(wins, "kill_participation")
-    loss_kp = _vals(losses, "kill_participation")
-    avg_kp  = _avg(all_kp)
-    kp_thresh = thresh["kill_participation_low"]["value"]  # 0.50
-
-    if avg_kp is not None and avg_kp < kp_thresh:
-        severity = min(100.0, (kp_thresh - avg_kp) * 200.0)
-        problems.append({
-            "key": "LOW_KILL_PARTICIPATION",
-            "triggered": True,
-            "severity": severity,
-            "raw_data": {
-                "avg_kp":    avg_kp,
-                "win_kp":    _avg(win_kp),
-                "loss_kp":   _avg(loss_kp),
-                "threshold": kp_thresh,
-                "n":         len(all_kp),
-                "bm":        benchmarks.metrics.get("kill_participation"),
-            },
-        })
+    if (p := _eval_low_kp(role_matches, wins, losses, benchmarks, thresh)):
+        problems.append(p)
 
     # --- FARM DEFICIENTE EN EARLY (cs_at_10) ---
     all_cs10 = _vals(role_matches, "cs_at_10")
@@ -379,33 +485,8 @@ def _evaluate_adc_problems(
         })
 
     # --- INCONSISTENCIA ---
-    consistency = score_result.consistency_score
-    cons_thresh = thresh["consistency_low"]["value"]  # 65.0
-
-    if consistency is not None and consistency < cons_thresh:
-        severity = min(100.0, (cons_thresh - consistency) * 2.0)
-
-        overall_scores = sorted(
-            ms.overall_score
-            for ms in score_result.match_scores
-            if ms.overall_score is not None
-        )
-        n_os = len(overall_scores)
-        floor_s   = overall_scores[max(0, int(n_os * 0.25))] if n_os >= 4 else None
-        ceiling_s = overall_scores[max(0, int(n_os * 0.75))] if n_os >= 4 else None
-
-        problems.append({
-            "key": "HIGH_INCONSISTENCY",
-            "triggered": True,
-            "severity": severity,
-            "raw_data": {
-                "consistency": consistency,
-                "threshold":   cons_thresh,
-                "floor_score": floor_s,
-                "ceiling_score": ceiling_s,
-                "n":           n_os,
-            },
-        })
+    if (p := _eval_inconsistency(score_result, thresh, "HIGH_INCONSISTENCY")):
+        problems.append(p)
 
     # --- BAJA CONTRIBUCIÓN A OBJETIVOS ---
     # Condición: N >= 10, N_wins >= 2, avg obj/min < 80% del promedio en victorias.
@@ -449,67 +530,17 @@ def _evaluate_top_problems(
     thresh = rules.THRESHOLDS["TOP"]
 
     # --- TILT / RACHA ---
-    recent = sorted(role_matches, key=lambda m: m.get("played_at", ""), reverse=True)
-    consecutive, same_day, most_recent_date = _count_consecutive_losses(recent)
-    tilt_val = thresh.get("tilt_consecutive_losses", {}).get("value", 4)
-    hours    = _hours_since((recent[0].get("played_at") or "") if recent else "")
-    sev_tilt = _tilt_severity(hours, consecutive, same_day, tilt_val)
-    if sev_tilt > 0:
-        problems.append({
-            "key": "TILT_SESSION",
-            "triggered": True,
-            "severity": sev_tilt,
-            "raw_data": {
-                "consecutive_losses": consecutive,
-                "same_day": same_day,
-                "date": most_recent_date,
-                "hours_since": hours,
-            },
-        })
+    if (p := _eval_tilt(role_matches, thresh)):
+        problems.append(p)
 
     # --- EXCESO DE MUERTES TOP ---
-    all_deaths  = _vals(role_matches, "deaths")
-    win_deaths  = _vals(wins, "deaths")
-    loss_deaths = _vals(losses, "deaths")
-    avg_deaths  = _avg(all_deaths)
-    death_thresh = thresh["deaths_high"]["value"]  # 5.0
-
-    if avg_deaths is not None and avg_deaths > death_thresh:
-        severity = min(100.0, (avg_deaths - death_thresh) * 25.0)
-        problems.append({
-            "key": "HIGH_DEATHS_TOP",
-            "triggered": True,
-            "severity": severity,
-            "raw_data": {
-                "avg_deaths":  avg_deaths,
-                "win_deaths":  _avg(win_deaths),
-                "loss_deaths": _avg(loss_deaths),
-                "threshold":   death_thresh,
-                "n":           len(all_deaths),
-                "n_wins":      len(wins),
-                "n_losses":    len(losses),
-                "bm":          benchmarks.metrics.get("deaths"),
-            },
-        })
+    if (p := _eval_high_deaths(role_matches, wins, losses, benchmarks,
+                               thresh, "HIGH_DEATHS_TOP", severity_mult=25.0)):
+        problems.append(p)
 
     # --- MALA FASE DE LÍNEAS (cs_at_10) ---
-    all_cs10 = _vals(role_matches, "cs_at_10")
-    avg_cs10 = _avg(all_cs10)
-    cs10_thresh = thresh["cs_at_10_low"]["value"]  # 60
-
-    if avg_cs10 is not None and len(all_cs10) >= 3 and avg_cs10 < cs10_thresh:
-        severity = min(100.0, (cs10_thresh - avg_cs10) * 3.0)
-        problems.append({
-            "key": "BAD_LANE_PHASE",
-            "triggered": True,
-            "severity": severity,
-            "raw_data": {
-                "avg_cs10":  avg_cs10,
-                "threshold": cs10_thresh,
-                "n":         len(all_cs10),
-                "bm":        benchmarks.metrics.get("cs_at_10"),
-            },
-        })
+    if (p := _eval_bad_lane_phase(role_matches, benchmarks, thresh)):
+        problems.append(p)
 
     # --- BAJA PRESIÓN LATERAL ---
     pressure_score = score_result.dimensions.get("Pressure")
@@ -531,32 +562,8 @@ def _evaluate_top_problems(
         })
 
     # --- INCONSISTENCIA ---
-    consistency = score_result.consistency_score
-    cons_thresh = thresh.get("consistency_low", {}).get("value", 65.0)
-
-    if consistency is not None and consistency < cons_thresh:
-        severity = min(100.0, (cons_thresh - consistency) * 2.0)
-        overall_scores = sorted(
-            ms.overall_score
-            for ms in score_result.match_scores
-            if ms.overall_score is not None
-        )
-        n_os = len(overall_scores)
-        floor_s   = overall_scores[max(0, int(n_os * 0.25))] if n_os >= 4 else None
-        ceiling_s = overall_scores[max(0, int(n_os * 0.75))] if n_os >= 4 else None
-
-        problems.append({
-            "key": "HIGH_INCONSISTENCY_TOP",
-            "triggered": True,
-            "severity": severity,
-            "raw_data": {
-                "consistency":   consistency,
-                "threshold":     cons_thresh,
-                "floor_score":   floor_s,
-                "ceiling_score": ceiling_s,
-                "n":             n_os,
-            },
-        })
+    if (p := _eval_inconsistency(score_result, thresh, "HIGH_INCONSISTENCY_TOP")):
+        problems.append(p)
 
     # --- BAJA CONVERSIÓN DE VENTAJA DE LÍNEA ---
     # Condición: lane_control_score > 50 (gana la lane) Y pressure_score < 40 (no convierte).
@@ -593,6 +600,68 @@ def _evaluate_top_problems(
 
 
 # ---------------------------------------------------------------------------
+# Evaluación de problemas — MID
+# ---------------------------------------------------------------------------
+
+def _evaluate_mid_problems(
+    role_matches: list[dict],
+    benchmarks: sv2.PlayerBenchmarks,
+    score_result: sv2.ScoreResultV2,
+) -> list[dict]:
+    """Evalúa patrones de coaching MID."""
+    problems: list[dict] = []
+    wins, losses = _split_by_result(role_matches)
+    thresh = rules.THRESHOLDS["MID"]
+
+    # --- TILT / RACHA ---
+    if (p := _eval_tilt(role_matches, thresh)):
+        problems.append(p)
+
+    # --- EXCESO DE MUERTES MID ---
+    # Multiplicador 20.0 (igual que ADC): mismo umbral de 6 muertes.
+    if (p := _eval_high_deaths(role_matches, wins, losses, benchmarks,
+                               thresh, "HIGH_DEATHS_MID", severity_mult=20.0)):
+        problems.append(p)
+
+    # --- MALA FASE DE LÍNEAS (cs_at_10) ---
+    if (p := _eval_bad_lane_phase(role_matches, benchmarks, thresh)):
+        problems.append(p)
+
+    # --- BAJA PRESENCIA DE MAPA (kill participation) ---
+    if (p := _eval_low_kp(role_matches, wins, losses, benchmarks, thresh)):
+        problems.append(p)
+
+    # --- BAJO IMPACTO DE DAÑO ---
+    # Condición: dimensión Damage Impact < 40 (score auto-relativo).
+    # Misma estructura que LOW_PRESSURE de TOP: dimensión de scorer_v2 + datos
+    # crudos (daño/min) para la evidencia.
+    damage_score = score_result.dimensions.get("Damage Impact")
+    dmg_thresh   = thresh.get("damage_score_low", {}).get("value", 40.0)
+
+    if damage_score is not None and damage_score < dmg_thresh:
+        all_dpm = _dmg_per_min_list(role_matches)
+        win_dpm = _dmg_per_min_list(wins)
+        problems.append({
+            "key": "LOW_DAMAGE_IMPACT",
+            "triggered": True,
+            "severity": min(100.0, (dmg_thresh - damage_score) * 2.0),
+            "raw_data": {
+                "damage_score": damage_score,
+                "threshold":    dmg_thresh,
+                "avg_dpm":      _avg(all_dpm),
+                "win_avg_dpm":  _avg(win_dpm),
+                "n":            len(role_matches),
+            },
+        })
+
+    # --- INCONSISTENCIA ---
+    if (p := _eval_inconsistency(score_result, thresh, "HIGH_INCONSISTENCY_MID")):
+        problems.append(p)
+
+    return problems
+
+
+# ---------------------------------------------------------------------------
 # Selección de problema principal
 # ---------------------------------------------------------------------------
 
@@ -624,7 +693,7 @@ def _generate_evidence(problem: dict, role: str) -> str:
             f"por la frustracion acumulada."
         )
 
-    if key in ("HIGH_DEATHS", "HIGH_DEATHS_TOP"):
+    if key in ("HIGH_DEATHS", "HIGH_DEATHS_TOP", "HIGH_DEATHS_MID"):
         avg  = data["avg_deaths"]
         wd   = data.get("win_deaths")
         ld   = data.get("loss_deaths")
@@ -659,8 +728,8 @@ def _generate_evidence(problem: dict, role: str) -> str:
         n    = data["n"]
 
         parts = [
-            f"Kill participation promedio ({n} partidas ADC): {avg:.0%} "
-            f"— umbral para ADC Gold: >{thr:.0%}."
+            f"Kill participation promedio ({n} partidas {role}): {avg:.0%} "
+            f"— umbral para {role} Gold: >{thr:.0%}."
         ]
         if wkp is not None and lkp is not None:
             parts.append(
@@ -696,12 +765,12 @@ def _generate_evidence(problem: dict, role: str) -> str:
         bm  = data.get("bm")
 
         parts = [
-            f"CS@10 promedio ({n} partidas TOP): {avg:.0f} "
+            f"CS@10 promedio ({n} partidas {role}): {avg:.0f} "
             f"— umbral de investigacion: >={thr:.0f}."
         ]
         if bm:
             parts.append(
-                f"Tu historial TOP: P25={bm.p25:.0f} / P50={bm.p50:.0f} / P75={bm.p75:.0f} CS@10."
+                f"Tu historial {role}: P25={bm.p25:.0f} / P50={bm.p50:.0f} / P75={bm.p75:.0f} CS@10."
             )
         return " ".join(parts)
 
@@ -718,7 +787,26 @@ def _generate_evidence(problem: dict, role: str) -> str:
             parts.append(f"Torres destruidas promedio: {tt:.1f} por partida.")
         return " ".join(parts)
 
-    if key in ("HIGH_INCONSISTENCY", "HIGH_INCONSISTENCY_TOP"):
+    if key == "LOW_DAMAGE_IMPACT":
+        score   = data["damage_score"]
+        thr     = data["threshold"]
+        avg_dpm = data.get("avg_dpm")
+        win_dpm = data.get("win_avg_dpm")
+        n       = data["n"]
+        parts = [
+            f"Dimension Damage Impact: {score:.0f}/100 "
+            f"— por debajo del umbral de {thr:.0f} (N={n} partidas MID)."
+        ]
+        if avg_dpm is not None:
+            parts.append(f"Daño a campeones promedio: {avg_dpm:.0f}/min.")
+            if win_dpm is not None and win_dpm > avg_dpm:
+                parts.append(
+                    f"En tus victorias: {win_dpm:.0f}/min "
+                    f"— cuando haces más daño, ganas más."
+                )
+        return " ".join(parts)
+
+    if key in ("HIGH_INCONSISTENCY", "HIGH_INCONSISTENCY_TOP", "HIGH_INCONSISTENCY_MID"):
         cons  = data["consistency"]
         thr   = data["threshold"]
         floor_s = data.get("floor_score")
@@ -805,7 +893,7 @@ def _generate_weekly_goal(problem: dict, role: str) -> WeeklyGoal:
             window="hoy",
         )
 
-    if key in ("HIGH_DEATHS", "HIGH_DEATHS_TOP"):
+    if key in ("HIGH_DEATHS", "HIGH_DEATHS_TOP", "HIGH_DEATHS_MID"):
         current = data["avg_deaths"]
         win_d   = data.get("win_deaths")
         bm      = data.get("bm")
@@ -881,7 +969,7 @@ def _generate_weekly_goal(problem: dict, role: str) -> WeeklyGoal:
         return WeeklyGoal(
             description=(
                 f"Alcanzar {target:.0f} CS al minuto 10 "
-                f"en las proximas 10 partidas TOP."
+                f"en las proximas 10 partidas {role}."
             ),
             metric="cs_at_10",
             current=current,
@@ -902,7 +990,28 @@ def _generate_weekly_goal(problem: dict, role: str) -> WeeklyGoal:
             window="proximas 10 partidas",
         )
 
-    if key in ("HIGH_INCONSISTENCY", "HIGH_INCONSISTENCY_TOP"):
+    if key == "LOW_DAMAGE_IMPACT":
+        current = data.get("avg_dpm") or 0.0
+        win_dpm = data.get("win_avg_dpm")
+        # Target: promedio en victorias si es mayor; si no, +10% del actual.
+        if win_dpm is not None and win_dpm > current:
+            target = round(win_dpm, 0)
+            target_note = "(Target = tu promedio en victorias)"
+        else:
+            target = round(current * 1.10, 0)
+            target_note = "(Target = +10% sobre tu promedio actual)"
+        return WeeklyGoal(
+            description=(
+                f"Subir tu daño a campeones de {current:.0f} a {target:.0f} por minuto "
+                f"en las proximas 10 partidas. {target_note}"
+            ),
+            metric="damage_per_min",
+            current=current,
+            target=target,
+            window="proximas 10 partidas",
+        )
+
+    if key in ("HIGH_INCONSISTENCY", "HIGH_INCONSISTENCY_TOP", "HIGH_INCONSISTENCY_MID"):
         current   = data["consistency"]
         floor_s   = data.get("floor_score") or 30.0
         target    = min(100.0, current + 10.0)
@@ -964,7 +1073,7 @@ def _generate_weekly_goal(problem: dict, role: str) -> WeeklyGoal:
 
 def _generate_training_plan(problem_key: str, role: str) -> TrainingPlan:
     """Obtiene acciones desde coaching_rules.py según la clave de problema."""
-    rule_map = rules.ADC_PROBLEMS if role == "ADC" else rules.TOP_PROBLEMS
+    rule_map = rules.PROBLEMS_BY_ROLE.get(role, rules.ADC_PROBLEMS)
     rule_def = rule_map.get(problem_key, {})
 
     primary   = rule_def.get(
@@ -1128,6 +1237,67 @@ def _detect_strengths_top(
                 evidence=(
                     f"Promedio {avg_tt:.1f} torres destruidas — "
                     f"en tu P75 historico ({bm.p75:.0f})."
+                ),
+            )))
+
+    strengths.sort(key=lambda x: x[0], reverse=True)
+    return [s for _, s in strengths[:3]]
+
+
+def _detect_strengths_mid(
+    role_matches: list[dict],
+    benchmarks: sv2.PlayerBenchmarks,
+    score_result: sv2.ScoreResultV2,
+) -> list[Strength]:
+    """
+    Detecta hasta 3 fortalezas del jugador MID basadas en datos.
+
+    Criterios (mismo patrón auto-relativo que TOP):
+        1. Lane: CS@10 >= P50 de propio historial
+        2. Supervivencia: deaths <= P50
+        3. Daño: team_damage_pct >= P50 (rol de carry cumplido)
+    """
+    strengths: list[tuple[float, Strength]] = []
+
+    # 1. CS@10 en la mediana o por encima
+    cs10_vals = _vals(role_matches, "cs_at_10")
+    if cs10_vals and "cs_at_10" in benchmarks.metrics:
+        avg_cs10 = statistics.mean(cs10_vals)
+        bm       = benchmarks.metrics["cs_at_10"]
+        if avg_cs10 >= bm.p50:
+            strengths.append((avg_cs10 - bm.p50, Strength(
+                name="Fase de lineas solida",
+                evidence=(
+                    f"CS@10 promedio {avg_cs10:.0f} — en tu mediana personal "
+                    f"({bm.p50:.0f}) o por encima."
+                ),
+            )))
+
+    # 2. Supervivencia
+    all_deaths = _vals(role_matches, "deaths")
+    if all_deaths and "deaths" in benchmarks.metrics:
+        avg_d = statistics.mean(all_deaths)
+        bm    = benchmarks.metrics["deaths"]
+        if avg_d <= bm.p50:
+            strengths.append((bm.p50 - avg_d, Strength(
+                name="Buena supervivencia",
+                evidence=(
+                    f"Promedio {avg_d:.1f} muertes — "
+                    f"en tu mediana historica ({bm.p50:.0f}) o por debajo."
+                ),
+            )))
+
+    # 3. Impacto de daño (share del daño del equipo)
+    tdp_vals = _vals(role_matches, "team_damage_pct")
+    if tdp_vals and "team_damage_pct" in benchmarks.metrics:
+        avg_tdp = statistics.mean(tdp_vals)
+        bm      = benchmarks.metrics["team_damage_pct"]
+        if avg_tdp >= bm.p50:
+            strengths.append((avg_tdp, Strength(
+                name="Alto impacto de daño",
+                evidence=(
+                    f"{avg_tdp:.0%} del daño total del equipo en promedio — "
+                    f"estas cumpliendo el rol de carry de daño."
                 ),
             )))
 
@@ -1308,7 +1478,7 @@ def analyze_coaching(
         score_result:  Resultado de scorer_v2.analyze_player() para el rol.
         match_history: Lista de todas las partidas del jugador (cualquier rol).
                        Se filtra internamente por `role`.
-        role:          'ADC' o 'TOP' (únicos roles implementados).
+        role:          'ADC', 'TOP' o 'MID' (roles implementados).
 
     Returns:
         CoachingResult con diagnóstico basado en reglas y datos.
@@ -1317,8 +1487,8 @@ def analyze_coaching(
     Limitaciones:
         - Benchmarks son auto-relativos (jugador vs sí mismo).
         - Umbrales absolutos provienen del documento de Arquitectura V2.
-        - TOP requiere N >= 5 para análisis mínimo.
-        - MID / JUNGLE / SUPPORT no implementados.
+        - Todos los roles requieren N >= 5 para análisis mínimo.
+        - JUNGLE / SUPPORT no implementados.
     """
     # Filtrar y ordenar por rol (más reciente primero)
     role_matches = sorted(
@@ -1336,7 +1506,7 @@ def analyze_coaching(
         return _coaching_insufficient(role, score_result, n, session_warning)
 
     # Roles no soportados
-    if role not in ("ADC", "TOP"):
+    if role not in sv2.SUPPORTED_ROLES:
         return CoachingResult(
             role=role,
             confidence_level="insufficient",
@@ -1345,15 +1515,15 @@ def analyze_coaching(
             probable_cause="Rol no soportado.",
             impact="Sin diagnostico disponible.",
             weekly_goal=WeeklyGoal(
-                description="Jugar ADC o TOP para obtener coaching.",
+                description="Jugar ADC, TOP o MID para obtener coaching.",
                 metric="role",
                 current=0.0,
                 target=1.0,
                 window="proximas sesiones",
             ),
             training_plan=TrainingPlan(
-                primary="Juega partidas de ADC o TOP para acceder al coaching.",
-                secondary=["MID, JUNGLE y SUPPORT seran implementados en una version futura.", ""],
+                primary="Juega partidas de ADC, TOP o MID para acceder al coaching.",
+                secondary=["JUNGLE y SUPPORT seran implementados en una version futura.", ""],
             ),
             strengths=[],
             improvements=[],
@@ -1366,9 +1536,12 @@ def analyze_coaching(
     if role == "ADC":
         problems  = _evaluate_adc_problems(role_matches, score_result.benchmarks, score_result)
         strengths = _detect_strengths_adc(role_matches, score_result.benchmarks, score_result)
-    else:  # TOP
+    elif role == "TOP":
         problems  = _evaluate_top_problems(role_matches, score_result.benchmarks, score_result)
         strengths = _detect_strengths_top(role_matches, score_result.benchmarks, score_result)
+    else:  # MID
+        problems  = _evaluate_mid_problems(role_matches, score_result.benchmarks, score_result)
+        strengths = _detect_strengths_mid(role_matches, score_result.benchmarks, score_result)
 
     # Sin problemas detectados
     primary = _select_primary(problems)
@@ -1377,7 +1550,7 @@ def analyze_coaching(
 
     # Problema principal
     primary_key = primary["key"]
-    rule_map    = rules.ADC_PROBLEMS if role == "ADC" else rules.TOP_PROBLEMS
+    rule_map    = rules.PROBLEMS_BY_ROLE.get(role, rules.ADC_PROBLEMS)
     rule_def    = rule_map.get(primary_key, {})
 
     evidence      = _generate_evidence(primary, role)

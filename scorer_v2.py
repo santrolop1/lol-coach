@@ -7,9 +7,10 @@ Arquitectura:
 Roles implementados:
     ADC: Economy / Positioning / Combat Impact
     TOP: Lane Control / Pressure / Survival
+    MID: Lane Dominance / Damage Impact / Survival
 
 Roles pendientes (arquitectura lista):
-    MID / JUNGLE / SUPPORT
+    JUNGLE / SUPPORT
 
 Principios de diseño:
     1. Scores son relativos a la distribución histórica del propio jugador.
@@ -46,6 +47,11 @@ _TREND_THRESHOLD = 1.5
 # Mínimo de partidas para calcular distribución de referencia.
 # Con N < _MIN_REF_SAMPLES, el percentile rank es poco fiable.
 _MIN_REF_SAMPLES = 3
+
+# Roles con dimensiones implementadas. Única fuente de verdad para el resto
+# de la app (UI, coaching_engine) — añadir un rol aquí + sus dimensiones
+# habilita el pipeline completo.
+SUPPORTED_ROLES: tuple[str, ...] = ("ADC", "TOP", "MID")
 
 
 # ---------------------------------------------------------------------------
@@ -292,6 +298,7 @@ def calculate_benchmarks(matches: list[dict], role: str) -> PlayerBenchmarks:
         "cs_per_min":          _cs_per_min,
         "cs_at_10":            lambda m: _safe(m, "cs_at_10"),
         "gold_per_min":        lambda m: _derived_per_min(m, "gold_earned"),
+        "damage_per_min":      lambda m: _derived_per_min(m, "damage"),
         "deaths":              lambda m: _safe(m, "deaths"),
         "time_dead_pct":       _time_dead_pct,
         "longest_alive_pct":   _longest_alive_pct,
@@ -673,6 +680,189 @@ def _score_top_survival(match: dict, ref: list[dict]) -> DimensionScore:
 
 
 # ---------------------------------------------------------------------------
+# Dimensiones MID
+# ---------------------------------------------------------------------------
+
+def _score_mid_lane_dominance(match: dict, ref: list[dict]) -> DimensionScore:
+    """
+    Lane Dominance — ¿Gana el MID su fase de líneas?
+
+    Métricas:
+        cs_at_10:         CS en primeros 10 min. MID es solo lane: la eficiencia
+                          de farm early determina el primer power spike.
+        max_cs_advantage: Ventaja máxima de CS vs el rival de línea (puede ser
+                          negativa). Mide dominio del match-up directo.
+        gold_per_min:     Gold total / minuto. Captura eficiencia económica
+                          incluyendo kills de roam y platos, no solo minions.
+
+    Peso entre métricas: IGUAL (misma justificación estadística que ADC/TOP:
+    con N<50 por rol, pesos derivados tendrían error estándar > 30%).
+    """
+    notes = []
+    if len(ref) < 5:
+        notes.append(
+            f"Referencia insuficiente (N={len(ref)} partidas MID). "
+            "Scores MID son estimaciones sin valor estadístico."
+        )
+
+    # cs_at_10
+    cs10      = _safe(match, "cs_at_10")
+    ref_cs10  = _build_ref(ref, lambda m: _safe(m, "cs_at_10"))
+    s_cs10    = _score_metric(cs10, ref_cs10, higher_is_better=True)
+    if cs10 is None:
+        notes.append("cs_at_10 no disponible.")
+
+    # max_cs_advantage (puede ser negativo → higher is still better)
+    csa       = _safe(match, "max_cs_advantage")
+    ref_csa   = _build_ref(ref, lambda m: _safe(m, "max_cs_advantage"))
+    s_csa     = _score_metric(csa, ref_csa, higher_is_better=True)
+    if csa is None:
+        notes.append("max_cs_advantage no disponible.")
+
+    # gold/min
+    gpm       = _derived_per_min(match, "gold_earned")
+    ref_gpm   = _build_ref(ref, lambda m: _derived_per_min(m, "gold_earned"))
+    s_gpm     = _score_metric(gpm, ref_gpm, higher_is_better=True)
+    if gpm is None:
+        notes.append("gold_earned no disponible.")
+
+    if bool(match.get("game_ended_surrender")):
+        notes.append(
+            "Partida rendida: gold/min calculado hasta el momento del surrender."
+        )
+
+    score = _avg_scores([s_cs10, s_csa, s_gpm])
+
+    return DimensionScore(
+        name="Lane Dominance",
+        score=round(score, 1) if score is not None else None,
+        metrics={
+            "cs_at_10":         int(cs10)      if cs10 is not None else None,
+            "max_cs_advantage": int(csa)       if csa  is not None else None,
+            "gold_per_min":     round(gpm, 1)  if gpm  is not None else None,
+        },
+        notes=notes,
+    )
+
+
+def _score_mid_damage(match: dict, ref: list[dict]) -> DimensionScore:
+    """
+    Damage Impact — ¿Cumple el MID su rol de carry de daño y presencia en peleas?
+
+    Métricas:
+        damage_per_min:      totalDamageDealtToChampions / minuto. Output de
+                             daño sostenido, normalizado por duración.
+        team_damage_pct:     Fracción del daño total del equipo (challenges).
+                             MID comparte con ADC la responsabilidad de carry.
+        kill_participation:  Fracción de kills/assists del equipo. Para MID
+                             es además el mejor proxy disponible en Riot API
+                             de la efectividad de los roams: un roam exitoso
+                             genera kills fuera de la línea que suman KP.
+
+    Limitación: la API no expone datos de posición en el mapa, así que el
+    roaming no puede medirse directamente. KP es el proxy documentado.
+    """
+    notes = []
+    if len(ref) < 5:
+        notes.append(
+            f"Referencia insuficiente (N={len(ref)} partidas MID). "
+            "Scores MID son estimaciones sin valor estadístico."
+        )
+
+    # damage/min
+    dpm       = _derived_per_min(match, "damage")
+    ref_dpm   = _build_ref(ref, lambda m: _derived_per_min(m, "damage"))
+    s_dpm     = _score_metric(dpm, ref_dpm, higher_is_better=True)
+    if dpm is None:
+        notes.append("damage no disponible.")
+
+    # team_damage_pct
+    tdpct     = _safe(match, "team_damage_pct")
+    ref_tdpct = _build_ref(ref, lambda m: _safe(m, "team_damage_pct"))
+    s_tdpct   = _score_metric(tdpct, ref_tdpct, higher_is_better=True)
+    if tdpct is None:
+        notes.append("team_damage_pct no disponible.")
+
+    # kill_participation
+    kp        = _safe(match, "kill_participation")
+    ref_kp    = _build_ref(ref, lambda m: _safe(m, "kill_participation"))
+    s_kp      = _score_metric(kp, ref_kp, higher_is_better=True)
+    if kp is None:
+        notes.append("kill_participation no disponible.")
+
+    if bool(match.get("game_ended_surrender")):
+        notes.append(
+            "Partida rendida: kill_participation calculado con menos fights."
+        )
+
+    score = _avg_scores([s_dpm, s_tdpct, s_kp])
+
+    return DimensionScore(
+        name="Damage Impact",
+        score=round(score, 1) if score is not None else None,
+        metrics={
+            "damage_per_min":     round(dpm, 1)   if dpm   is not None else None,
+            "team_damage_pct":    round(tdpct, 3) if tdpct is not None else None,
+            "kill_participation": round(kp, 3)    if kp    is not None else None,
+        },
+        notes=notes,
+    )
+
+
+def _score_mid_survival(match: dict, ref: list[dict]) -> DimensionScore:
+    """
+    Survival — ¿Sobrevive el MID para estar presente en los momentos clave?
+
+    Métricas:
+        deaths:            Muertes totales. MID es el objetivo prioritario de
+                           los ganks del jungler enemigo (línea corta, mucha
+                           prioridad de mapa).
+        time_dead_pct:     Tiempo muerto / duración. Un MID muerto no roamea,
+                           no responde a objetivos y pierde la ola bajo torre.
+        longest_alive_pct: Mayor racha de vida / duración. Indica capacidad de
+                           sobrevivir a las peleas importantes de mid game.
+    """
+    notes = []
+    if len(ref) < 5:
+        notes.append(
+            f"Referencia insuficiente (N={len(ref)} partidas MID). "
+            "Scores MID son estimaciones sin valor estadístico."
+        )
+
+    # deaths
+    deaths     = _safe(match, "deaths")
+    ref_d      = _build_ref(ref, lambda m: _safe(m, "deaths"))
+    s_d        = _score_metric(deaths, ref_d, higher_is_better=False)
+
+    # time_dead_pct
+    td_pct     = _time_dead_pct(match)
+    ref_tdp    = _build_ref(ref, _time_dead_pct)
+    s_tdp      = _score_metric(td_pct, ref_tdp, higher_is_better=False)
+    if td_pct is None:
+        notes.append("time_spent_dead no disponible.")
+
+    # longest_alive_pct
+    la_pct     = _longest_alive_pct(match)
+    ref_lap    = _build_ref(ref, _longest_alive_pct)
+    s_lap      = _score_metric(la_pct, ref_lap, higher_is_better=True)
+    if la_pct is None:
+        notes.append("longest_time_alive no disponible.")
+
+    score = _avg_scores([s_d, s_tdp, s_lap])
+
+    return DimensionScore(
+        name="Survival",
+        score=round(score, 1) if score is not None else None,
+        metrics={
+            "deaths":            int(deaths)       if deaths is not None else None,
+            "time_dead_pct":     round(td_pct, 3)  if td_pct is not None else None,
+            "longest_alive_pct": round(la_pct, 3)  if la_pct is not None else None,
+        },
+        notes=notes,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Dispatch por rol
 # ---------------------------------------------------------------------------
 
@@ -690,7 +880,13 @@ def _score_dimensions(match: dict, ref: list[dict], role: str) -> list[Dimension
             _score_top_pressure(match, ref),
             _score_top_survival(match, ref),
         ]
-    # MID / JUNGLE / SUPPORT: pendiente de implementación
+    if role == "MID":
+        return [
+            _score_mid_lane_dominance(match, ref),
+            _score_mid_damage(match, ref),
+            _score_mid_survival(match, ref),
+        ]
+    # JUNGLE / SUPPORT: pendiente de implementación
     return []
 
 
@@ -815,7 +1011,7 @@ def score_match(match: dict, reference_matches: list[dict]) -> Optional[MatchSco
         explicando el impacto del surrender en sus métricas específicas.
     """
     role = match.get("role", "OTHER")
-    if role not in ("ADC", "TOP"):
+    if role not in SUPPORTED_ROLES:
         return None
 
     # Filtrar referencia por mismo rol
@@ -846,7 +1042,7 @@ def analyze_player(matches: list[dict], role: str) -> ScoreResultV2:
         matches: Lista de partidas del jugador (cualquier rol). Se filtra
                  internamente por `role`. Orden no importa (se ordena por
                  played_at internamente para el cálculo de tendencia).
-        role:    'ADC' o 'TOP' (roles soportados actualmente).
+        role:    'ADC', 'TOP' o 'MID' (roles soportados actualmente).
 
     Returns:
         ScoreResultV2 con todos los indicadores de la arquitectura V2.
@@ -950,9 +1146,9 @@ def analyze_player(matches: list[dict], role: str) -> ScoreResultV2:
             "Métricas de duración (gold/min, objectives/min) son comparables "
             "gracias a la normalización, pero el contexto de juego es diferente."
         )
-    if role == "TOP" and n < 10:
+    if role in ("TOP", "MID") and n < 10:
         limitations.append(
-            "TOP tiene muestra muy pequeña. Scores son referenciales, no diagnósticos."
+            f"{role} tiene muestra muy pequeña. Scores son referenciales, no diagnósticos."
         )
 
     return ScoreResultV2(

@@ -43,19 +43,24 @@ GAMEFLOW_LABELS: dict[str, str] = {
 
 # ── Parser ────────────────────────────────────────────────────────────────────
 
-def parse_session(raw: dict, champion_map: dict[int, str]) -> ChampSelectSession:
+def parse_session(raw: dict, champion_map: dict[int, dict[str, str]]) -> ChampSelectSession:
     """
     Convierte el JSON crudo de /lol-champ-select/v1/session en un
     ChampSelectSession tipado.
 
-    champion_map: {champion_id: champion_name} desde get_champion_map().
-    Si un ID no está en el mapa, se muestra "Campeón #{id}".
+    champion_map: {champion_id: {"name": ..., "alias": ...}} desde get_champion_map().
+    Si un ID no está en el mapa, se muestra "Campeón #{id}" en ambos campos.
     """
 
-    def resolve(champ_id: int) -> str:
+    def resolve(champ_id: int) -> tuple[str, str]:
+        """Devuelve (display_name, alias). alias = formato Riot API, para cruzar con la DB."""
         if champ_id == 0:
-            return ""
-        return champion_map.get(champ_id, f"Campeón #{champ_id}")
+            return "", ""
+        entry = champion_map.get(champ_id)
+        if entry:
+            return entry["name"], entry["alias"]
+        fallback = f"Campeón #{champ_id}"
+        return fallback, fallback
 
     local_cell_id = raw.get("localPlayerCellId", -1)
 
@@ -63,10 +68,12 @@ def parse_session(raw: dict, champion_map: dict[int, str]) -> ChampSelectSession
         slots = []
         for slot in team_list:
             cid = slot.get("championId", 0)
+            name, alias = resolve(cid)
             slots.append(ChampionSlot(
                 cell_id           = slot.get("cellId", -1),
                 champion_id       = cid,
-                champion_name     = resolve(cid),
+                champion_name     = name,
+                champion_alias    = alias,
                 assigned_position = slot.get("assignedPosition", ""),
                 spell1_id         = slot.get("spell1Id", 0),
                 spell2_id         = slot.get("spell2Id", 0),
@@ -83,9 +90,13 @@ def parse_session(raw: dict, champion_map: dict[int, str]) -> ChampSelectSession
 
     # Bans: filtrar IDs 0 (sin banear aún)
     raw_bans = raw.get("bans", {})
+    my_bans_raw    = [resolve(cid) for cid in raw_bans.get("myTeamBans", [])    if cid != 0]
+    their_bans_raw = [resolve(cid) for cid in raw_bans.get("theirTeamBans", []) if cid != 0]
     bans = BanPhase(
-        my_team_bans    = [resolve(cid) for cid in raw_bans.get("myTeamBans", [])    if cid != 0],
-        their_team_bans = [resolve(cid) for cid in raw_bans.get("theirTeamBans", []) if cid != 0],
+        my_team_bans          = [n for n, _ in my_bans_raw],
+        their_team_bans       = [n for n, _ in their_bans_raw],
+        my_team_bans_alias    = [a for _, a in my_bans_raw],
+        their_team_bans_alias = [a for _, a in their_bans_raw],
     )
 
     raw_timer = raw.get("timer", {})
