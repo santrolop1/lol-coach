@@ -1,0 +1,1 @@
+"""Conocimiento universal de Items."""

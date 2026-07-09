@@ -15,6 +15,7 @@ from typing import Callable
 import db
 from riot_api import RiotClient, RiotAPIError, RiotNotFoundError
 from parser import parse_match
+import lcu.client as lcu_client
 
 
 # ── Estado ───────────────────────────────────────────────────────────────────
@@ -133,6 +134,71 @@ def save_account(
     db.save_config("platform",  platform)
     db.save_config("puuid",     profile["puuid"])
     db.save_player({**profile, "updated_at": datetime.now(timezone.utc).isoformat()})
+
+
+# ── Auto-detección de cuenta desde LCU ───────────────────────────────────────
+
+def detect_account_from_lcu() -> dict:
+    """
+    Lee el jugador actualmente logueado en el cliente de League y, si es
+    distinto al configurado, actualiza la cuenta automáticamente.
+
+    Retorna dict con:
+      status: "updated" | "already_synced" | "lcu_offline" | "no_api_key" | "error"
+      riot_id, tag, level, rank (solo cuando status == "updated")
+      message: texto legible
+    """
+    api_key = db.get_config("api_key")
+    if not api_key:
+        return {"status": "no_api_key", "message": "No hay Riot API key configurada."}
+
+    creds = lcu_client.read_credentials()
+    if creds is None:
+        return {"status": "lcu_offline", "message": "Cliente de League no detectado."}
+
+    summoner = lcu_client.get_current_summoner(creds)
+    if not summoner:
+        return {"status": "lcu_offline", "message": "No se pudo leer el invocador del cliente."}
+
+    lcu_puuid   = summoner.get("puuid", "")
+    lcu_game    = summoner.get("gameName") or summoner.get("displayName", "")
+    lcu_tag     = summoner.get("tagLine") or summoner.get("gameTag", "")
+    platform    = db.get_config("platform") or "la1"
+
+    if not lcu_puuid:
+        return {"status": "error", "message": "El cliente no devolvió un PUUID válido."}
+
+    configured_puuid = db.get_config("puuid") or ""
+    if lcu_puuid == configured_puuid:
+        return {"status": "already_synced", "message": "La cuenta ya está sincronizada."}
+
+    # Cuenta cambió — resolver perfil completo vía Riot API
+    try:
+        profile = resolve_riot_account(
+            api_key=api_key,
+            platform=platform,
+            game_name=lcu_game,
+            tag_line=lcu_tag,
+        )
+    except (RiotNotFoundError, RiotAPIError, Exception) as e:
+        return {"status": "error", "message": f"No se pudo resolver la cuenta: {e}"}
+
+    save_account(
+        api_key=api_key,
+        platform=platform,
+        game_name=lcu_game,
+        tag_line=lcu_tag,
+        profile=profile,
+    )
+
+    return {
+        "status":  "updated",
+        "message": f"Cuenta actualizada a {profile['riot_id']}#{profile['tag']}",
+        "riot_id": profile["riot_id"],
+        "tag":     profile["tag"],
+        "level":   profile["level"],
+        "rank":    profile["rank"],
+    }
 
 
 # ── Descarga de partidas ──────────────────────────────────────────────────────

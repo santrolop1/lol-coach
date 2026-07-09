@@ -142,6 +142,8 @@ def _migrate_match_table(conn: sqlite3.Connection) -> int:
     added = 0
     for col_name, col_type in _V2_COLUMNS:
         if col_name not in existing:
+            # Seguro: col_name y col_type provienen de _V2_COLUMNS, constante interna.
+            # Nunca se interpolan valores de entrada del usuario.
             conn.execute(
                 f"ALTER TABLE match ADD COLUMN {col_name} {col_type};"
             )
@@ -179,6 +181,12 @@ def get_config(key: str) -> str | None:
             "SELECT value FROM config WHERE key = ?", (key,)
         ).fetchone()
     return row["value"] if row else None
+
+
+def delete_config(key: str) -> None:
+    with _get_conn() as conn:
+        conn.execute("DELETE FROM config WHERE key = ?", (key,))
+        conn.commit()
 
 
 # ---------------------------------------------------------------------------

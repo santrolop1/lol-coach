@@ -1,5 +1,7 @@
 """
 ui/matches.py — Página de descarga y listado de partidas.
+
+Solo renderiza. Toda la lógica de datos viene del MatchesViewModel.
 """
 
 import sys
@@ -10,14 +12,13 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import db
-import scorer_v2
 from riot_api import RiotClient, RiotAPIError
 from parser import parse_match
-from scorer import calculate_score
+from backend.viewmodels.matches_vm import build_matches, MatchCard
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Helpers de presentación (solo render, sin cálculos)
 # ---------------------------------------------------------------------------
 
 def _score_color(score: float) -> str:
@@ -28,36 +29,21 @@ def _score_color(score: float) -> str:
     return "#EF4444"
 
 
-def _match_card_html(m: dict) -> str:
-    """Genera el HTML de una tarjeta de partida individual."""
-    is_win    = m["result"] == "WIN"
-    css_cls   = "mc mc-win" if is_win else "mc mc-loss"
-    res_cls   = "mc-res mc-res-win" if is_win else "mc-res mc-res-loss"
-    res_text  = "VICTORIA" if is_win else "DERROTA"
-
-    kda = f"{m['kills']}/{m['deaths']}/{m['assists']}"
-
-    sc    = calculate_score(m)
-    score = sc.overall_score
-    color = _score_color(score)
-
-    dims = {
-        "Farm":  sc.farm_score,
-        "Superv": sc.survival_score,
-        "Pelea":  sc.fight_score,
-    }
-    best  = max(dims, key=dims.get)
-    worst = min(dims, key=dims.get)
-
+def _match_card_html(card: MatchCard) -> str:
+    """Genera el HTML de una tarjeta de partida desde un MatchCard pre-calculado."""
+    css_cls  = "mc mc-win" if card.is_win else "mc mc-loss"
+    res_cls  = "mc-res mc-res-win" if card.is_win else "mc-res mc-res-loss"
+    res_text = "VICTORIA" if card.is_win else "DERROTA"
+    color    = _score_color(card.overall_score)
     return f"""
 <div class="{css_cls}">
     <div class="{res_cls}">{res_text}</div>
-    <div class="mc-champ">{m['champion']}</div>
-    <div class="mc-role">{m['role']}</div>
-    <div class="mc-kda">{kda}</div>
-    <div class="mc-score" style="color:{color}">{score:.0f}</div>
-    <div class="mc-tag mc-pos">✓ {best}</div>
-    <div class="mc-tag mc-neg">✗ {worst}</div>
+    <div class="mc-champ">{card.champion}</div>
+    <div class="mc-role">{card.role}</div>
+    <div class="mc-kda">{card.kda}</div>
+    <div class="mc-score" style="color:{color}">{card.overall_score:.0f}</div>
+    <div class="mc-tag mc-pos">✓ {card.best_dim}</div>
+    <div class="mc-tag mc-neg">✗ {card.worst_dim}</div>
 </div>
 """
 
@@ -69,50 +55,48 @@ def _match_card_html(m: dict) -> str:
 def render() -> None:
     st.title("🎮 Partidas")
 
-    # ----------------------------------------------------------------
-    # Verificar configuración
-    # ----------------------------------------------------------------
-    puuid    = db.get_config("puuid")
-    platform = db.get_config("platform") or "la1"
+    # ── Filtros (determinan qué construye el ViewModel) ───────────────────────
+    col1, col2 = st.columns(2)
+    with col1:
+        role_filter = st.selectbox("Filtrar por rol", ["Todos", "ADC", "TOP"])
 
-    if not puuid:
+    # Construir ViewModel (toda la lógica de datos vive aquí)
+    role_arg = None if role_filter == "Todos" else role_filter
+    vm = build_matches(role_filter=role_arg)
+
+    if not vm.has_config:
         st.warning("⚠️ Primero configura tu cuenta en **Configuración**.")
         return
 
-    player = db.get_player(puuid)
-    if player:
+    with col2:
+        champ_filter = st.selectbox("Filtrar por campeón", ["Todos"] + vm.available_champs)
+
+    # Reconstruir con filtro de campeón si fue seleccionado
+    champ_arg = None if champ_filter == "Todos" else champ_filter
+    if champ_arg:
+        vm = build_matches(role_filter=role_arg, champion_filter=champ_arg)
+
+    # ── Info del jugador ──────────────────────────────────────────────────────
+    if vm.player:
+        p = vm.player
         st.caption(
-            f"**{player['riot_id']}#{player['tag']}** · "
-            f"Nivel {player.get('level', '?')} · {player.get('rank', 'Sin rango')}"
+            f"**{p['riot_id']}#{p['tag']}** · "
+            f"Nivel {p.get('level', '?')} · {p.get('rank', 'Sin rango')}"
         )
 
-    # ----------------------------------------------------------------
-    # Últimas 5 partidas — tarjetas visuales
-    # ----------------------------------------------------------------
-    all_role_matches = db.get_matches(puuid, limit=100)
-    adc_top = [m for m in all_role_matches if m["role"] in ("ADC", "TOP")]
-    last_5  = adc_top[:5]
-
-    if last_5:
-        st.markdown('<div class="sec-label">Últimas 5 partidas</div>',
-                    unsafe_allow_html=True)
-        cols = st.columns(len(last_5))
-        for col, m in zip(cols, last_5):
+    # ── Últimas 5 partidas — tarjetas ─────────────────────────────────────────
+    if vm.recent_cards:
+        st.markdown('<div class="sec-label">Últimas 5 partidas</div>', unsafe_allow_html=True)
+        cols = st.columns(len(vm.recent_cards))
+        for col, card in zip(cols, vm.recent_cards):
             with col:
-                st.markdown(_match_card_html(m), unsafe_allow_html=True)
+                st.markdown(_match_card_html(card), unsafe_allow_html=True)
 
-    # ----------------------------------------------------------------
-    # Descarga de partidas
-    # ----------------------------------------------------------------
-    st.markdown('<div class="sec-label">Descargar partidas</div>',
-                unsafe_allow_html=True)
-
+    # ── Descarga de partidas ──────────────────────────────────────────────────
+    st.markdown('<div class="sec-label">Descargar partidas</div>', unsafe_allow_html=True)
     col1, col2 = st.columns([2, 1])
     with col1:
-        count = st.slider(
-            "Número de partidas",
-            min_value=5, max_value=50, value=20, step=5,
-        )
+        count = st.slider("Número de partidas", min_value=5, max_value=50, value=20, step=5)
     with col2:
         queue_options = {
             "Ranked Solo/Duo": 420,
@@ -122,110 +106,65 @@ def render() -> None:
         }
         queue_label = st.selectbox("Tipo", list(queue_options.keys()))
 
-    api_key = db.get_config("api_key")
+    api_key  = db.get_config("api_key")
+    platform = db.get_config("platform") or "la1"
+    puuid    = db.get_config("puuid")
     if not api_key:
-        st.warning(
-            "⚠️ No hay API Key configurada. "
-            "Para descargar partidas nuevas, ve a **Configuración** y actualiza tu clave."
-        )
+        st.warning("⚠️ No hay API Key configurada. Ve a **Configuración** y actualiza tu clave.")
     else:
         if st.button("🔄 Descargar partidas", use_container_width=True, type="primary"):
             _download_matches(puuid, api_key, platform, count, queue_options[queue_label])
 
-    # ----------------------------------------------------------------
-    # Tabla de partidas
-    # ----------------------------------------------------------------
-    st.markdown('<div class="sec-label">Historial completo</div>',
-                unsafe_allow_html=True)
+    # ── Tabla de partidas ─────────────────────────────────────────────────────
+    st.markdown('<div class="sec-label">Historial completo</div>', unsafe_allow_html=True)
 
-    col1, col2 = st.columns(2)
-    with col1:
-        role_filter = st.selectbox("Filtrar por rol", ["Todos", "ADC", "TOP"])
-    with col2:
-        role_arg   = None if role_filter == "Todos" else role_filter
-        all_matches = db.get_matches(puuid, role=role_arg, limit=100)
-        champions   = sorted({m["champion"] for m in all_matches if m["champion"]})
-        champ_filter = st.selectbox("Filtrar por campeón", ["Todos"] + champions)
-
-    matches = all_matches
-    if champ_filter != "Todos":
-        matches = [m for m in matches if m["champion"] == champ_filter]
-
-    if not matches:
-        st.info(
-            "No hay partidas guardadas todavía. "
-            "Usa el botón de arriba para descargar partidas."
-        )
+    if not vm.table_rows:
+        st.info("No hay partidas guardadas todavía. Usa el botón de arriba para descargar partidas.")
         return
 
-    # Resumen
-    wins   = sum(1 for m in matches if m["result"] == "WIN")
-    losses = len(matches) - wins
-    wr     = round(wins / len(matches) * 100, 1) if matches else 0.0
-
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Partidas", len(matches))
-    c2.metric("Victorias", wins)
-    c3.metric("Derrotas", losses)
-    c4.metric("Winrate", f"{wr}%")
+    c1.metric("Partidas", vm.summary.total)
+    c2.metric("Victorias", vm.summary.wins)
+    c3.metric("Derrotas",  vm.summary.losses)
+    c4.metric("Winrate",   f"{vm.summary.winrate}%")
 
-    # Tabla
-    rows = []
-    for m in matches:
-        dur_sec_total = m.get("duration_sec") or 1
-        dur_min = dur_sec_total // 60
-        dur_sec = dur_sec_total % 60
-        cs_pm   = round((m.get("cs") or 0) / max(dur_sec_total / 60, 1), 1)
-        rows.append({
-            "Resultado": "✅ Victoria" if m["result"] == "WIN" else "❌ Derrota",
-            "Campeón":   m.get("champion") or "—",
-            "Rol":       m.get("role") or "—",
-            "KDA":       f"{m.get('kills') or 0}/{m.get('deaths') or 0}/{m.get('assists') or 0}",
-            "CS":        m.get("cs") or 0,
-            "CS/min":    cs_pm,
-            "Daño":      f"{m.get('damage') or 0:,}",
-            "Duración":  f"{dur_min}m {dur_sec:02d}s",
-            "Fecha":     (m.get("played_at") or "")[:10],
-        })
+    rows = [
+        {
+            "Resultado": r.result,
+            "Campeón":   r.champion,
+            "Rol":       r.role,
+            "KDA":       r.kda,
+            "CS":        r.cs,
+            "CS/min":    r.cs_pm,
+            "Daño":      r.damage,
+            "Duración":  r.duration,
+            "Fecha":     r.date,
+        }
+        for r in vm.table_rows
+    ]
+    st.dataframe(rows, use_container_width=True, hide_index=True)
 
-    st.dataframe(rows, use_container_width=True, hide_index=True)  # noqa: kept width
+    # ── Análisis V2 ───────────────────────────────────────────────────────────
+    if vm.v2_analysis and vm.v2_analysis.available:
+        v2 = vm.v2_analysis
+        with st.expander(f"📊 Análisis detallado V2 — {v2.role} ({len(v2.detail_rows)} partidas)"):
+            detail_rows = [
+                {
+                    "Fecha":     r.date,
+                    "Campeón":   r.champion,
+                    "Resultado": r.result,
+                    "Overall":   r.overall,
+                    "KDA":       r.kda,
+                    **r.dimensions,
+                }
+                for r in v2.detail_rows
+            ]
+            st.dataframe(detail_rows, use_container_width=True, hide_index=True)
 
-    # ----------------------------------------------------------------
-    # Análisis detallado V2 (solo cuando hay un rol concreto)
-    # ----------------------------------------------------------------
-    if role_filter in ("ADC", "TOP"):
-        role_matches_v2 = [m for m in matches if m["role"] == role_filter]
-        if len(role_matches_v2) >= 5:
-            with st.expander(f"📊 Análisis detallado V2 — {role_filter} ({len(role_matches_v2)} partidas)"):
-                sr = scorer_v2.analyze_player(role_matches_v2, role_filter)
-
-                # Nombres de dimensiones según rol
-                dim_names = [d.name for d in sr.match_scores[0].dimensions] if sr.match_scores else []
-
-                # Tabla por partida
-                detail_rows = []
-                for m, ms in zip(role_matches_v2, sr.match_scores):
-                    row = {
-                        "Fecha":     (m.get("played_at") or "")[:10],
-                        "Campeón":   m.get("champion", "?"),
-                        "Resultado": "✅" if m.get("result") == "WIN" else "❌",
-                        "Overall":   round(ms.overall_score, 1) if ms.overall_score else 0,
-                        "KDA":       f"{m.get('kills',0)}/{m.get('deaths',0)}/{m.get('assists',0)}",
-                    }
-                    for d in ms.dimensions:
-                        row[d.name] = round(d.score, 1)
-                    detail_rows.append(row)
-
-                st.dataframe(detail_rows, use_container_width=True, hide_index=True)
-
-                # Promedios de dimensiones
-                avg_overall = sr.overall_score
-                avg_dims = sr.dimensions  # dict: {name: score}
-
-                avg_parts = [f"Overall: **{avg_overall:.1f}**"]
-                for name, score in avg_dims.items():
-                    avg_parts.append(f"{name}: **{score:.1f}**")
-                st.caption("Promedios V2 — " + " · ".join(avg_parts))
+            avg_parts = [f"Overall: **{v2.avg_overall:.1f}**"]
+            for name, score in v2.avg_dims.items():
+                avg_parts.append(f"{name}: **{score:.1f}**")
+            st.caption("Promedios V2 — " + " · ".join(avg_parts))
 
 
 # ---------------------------------------------------------------------------

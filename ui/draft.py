@@ -470,25 +470,33 @@ def _render_disconnected() -> None:
 def render() -> None:
     st.title("🎯 Draft")
 
-    # ── 1. Leer credenciales del lockfile / proceso ───────────────────────────
-    creds = lcu_client.read_credentials()
+    # ── Cache de sesión para champion_map y CPA (UI concern) ─────────────────
+    # Los caches se pasan al ViewModel para evitar re-fetching en cada ciclo.
+    champ_map_cache: dict = st.session_state.get("draft_champ_map", None)
+    cpa_cache: dict       = st.session_state.setdefault("draft_cpa_cache", {})
 
-    if creds is None:
+    # ── Construir ViewModel (toda la lógica vive aquí) ────────────────────────
+    from backend.viewmodels.draft_vm import build_draft
+    vm = build_draft(champion_map_cache=champ_map_cache, cpa_cache=cpa_cache)
+
+    # Persistir el champion_map en session_state si fue cargado esta vez
+    if vm.champion_map:
+        st.session_state["draft_champ_map"] = vm.champion_map
+
+    # ── Render según estado ───────────────────────────────────────────────────
+    if not vm.lcu_connected:
         _render_disconnected()
         if st.button("🔄 Reintentar conexión", key="draft_retry"):
             st.rerun()
         return
 
-    # ── 2. Obtener fase del cliente ───────────────────────────────────────────
-    phase = lcu_client.get_phase(creds)
-
-    if phase is None:
-        # Lockfile existe pero el cliente no responde (crash o inicio lento)
+    if vm.phase is None:
+        # Lockfile existe pero el cliente no responde
         st.markdown(
             f'<div class="draft-status">'
             f'  <div class="draft-status-dot disconnected"></div>'
             f'  <span class="draft-status-label">Conectando…</span>'
-            f'  <span class="draft-status-detail">· Puerto {creds.port}</span>'
+            f'  <span class="draft-status-detail">· Puerto {vm.credentials.port}</span>'
             f'</div>',
             unsafe_allow_html=True,
         )
@@ -497,30 +505,21 @@ def render() -> None:
         st.rerun()
         return
 
-    # ── 3. Mostrar estado ─────────────────────────────────────────────────────
-    dot = "connected" if phase == "ChampSelect" else "idle"
-    _render_status_bar(creds, phase, dot)
+    dot = "connected" if vm.phase == "ChampSelect" else "idle"
+    _render_status_bar(vm.credentials, vm.phase, dot)
 
-    # ── 4. Según fase ─────────────────────────────────────────────────────────
-    if phase == "ChampSelect":
-        raw_session = lcu_client.get_champ_select_session(creds)
-
-        if raw_session is None:
+    if vm.phase == "ChampSelect":
+        if vm.session is None:
             st.info("Cargando sesión de champ select…")
         else:
-            champ_map = _champion_map(creds)
-            session   = parse_session(raw_session, champ_map)
-            _render_champ_select(session)
-
-            # ── Draft Intelligence (Sprint 8) ──────────────────────────────
+            _render_champ_select(vm.session)
             st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
-            if session.my_role:
-                cpa = _get_cpa(creds, session.my_role)
-                if cpa is not None:
-                    advice = analyze_draft(session, cpa)
-                    _render_draft_intelligence(advice, session)
-                elif _LCU_TO_ROLE.get(session.my_role, "") not in _SUPPORTED_ROLES:
-                    role_name = _LCU_TO_ROLE.get(session.my_role, session.my_role.upper())
+
+            if vm.session.my_role:
+                if vm.advice is not None:
+                    _render_draft_intelligence(vm.advice, vm.session)
+                elif not vm.role_supported:
+                    role_name = vm.role or vm.session.my_role.upper()
                     st.markdown(
                         f'<div class="sec-header"><span class="sec-header-title">'
                         f'🧠 &nbsp;DRAFT INTELLIGENCE</span></div>'
@@ -537,12 +536,9 @@ def render() -> None:
                     unsafe_allow_html=True,
                 )
 
-        # Refresh rápido durante champ select
         time.sleep(0.75)
         st.rerun()
-
     else:
-        _render_waiting(phase)
-        # Refresh lento cuando esperamos que empiece champ select
+        _render_waiting(vm.phase)
         time.sleep(2.0)
         st.rerun()

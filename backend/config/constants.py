@@ -19,3 +19,11 @@ TRAP_WR_MAX = 0.40
 
 # Dependencia de pool: si el campeón principal supera este % → advertencia
 DEPENDENCY_HIGH = 0.50
+
+# Matchup Intelligence
+MIN_MATCHUP_GAMES    = 3   # mínimo de partidas contra un campeón para mostrar matchup
+ROBUST_MATCHUP_GAMES = 8   # muestra considerada robusta (badge confiable)
+
+# Champion Coach
+MIN_CHAMPION_GAMES    = 5   # mínimo para análisis completo de un campeón
+ROBUST_CHAMPION_GAMES = 10  # muestra robusta para coach de campeón

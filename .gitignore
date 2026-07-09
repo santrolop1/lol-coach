@@ -66,3 +66,23 @@ logs/
 *.bak
 *.swp
 *.swo
+
+# ─── Windows ──────────────────────────────────────────────────────────────────
+desktop.ini
+Thumbs.db
+ehthumbs.db
+
+# ─── Herramientas de desarrollo locales ───────────────────────────────────────
+.claude/
+CURRENT_ARCHITECTURE.md
+
+# ─── Node / frontend ──────────────────────────────────────────────────────────
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# ─── Cobertura de tests ───────────────────────────────────────────────────────
+.coverage
+htmlcov/
+.pytest_cache/

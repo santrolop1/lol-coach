@@ -21,8 +21,9 @@ from parser import parse_match
 # Mínimo de minutos entre syncs automáticas (evita abusar de la API)
 SYNC_INTERVAL_MINUTES: int = 15
 
-# Partidas a consultar en cada check (ranked solo)
-_SYNC_FETCH_COUNT: int = 20
+# Partidas a consultar en cada sync. 50 cubre ~4h de juego intensivo (10-12 partidas/hora).
+# Aumentar si el intervalo de sync se amplía en el futuro.
+SYNC_FETCH_COUNT: int = 50
 
 
 # ── Resultado ──────────────────────────────────────────────────────────────────
@@ -131,7 +132,7 @@ def sync_matches(
 
     # ── Obtener IDs recientes ──────────────────────────────────────────────────
     try:
-        recent_ids = client.get_match_ids(puuid, count=_SYNC_FETCH_COUNT, queue=420)
+        recent_ids = client.get_match_ids(puuid, count=SYNC_FETCH_COUNT, queue=420)
     except RiotAPIError as e:
         err = str(e)
         status = "rate_limited" if "429" in err or "rate" in err.lower() else "error"

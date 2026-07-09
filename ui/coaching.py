@@ -7,6 +7,7 @@ Roles soportados: ADC, TOP.
 
 import sys
 import statistics
+import dataclasses
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -19,8 +20,12 @@ import db
 import scorer_v2
 import coaching_engine
 import coaching_rules
-from backend.services.champion_analyzer import analyze_champion_pool
-from backend.services.match_resolver import resolve_matches
+from backend.services.matchup_models import MatchupResult, MatchupRecord
+from backend.services.champion_models import ChampionCoachResult
+from backend.services.post_game_review import generate_review
+from backend.services.review_models import PostGameReview
+from backend.services.priority_engine import Priority
+from backend.viewmodels.coaching_vm import build_coaching, build_champion_coach
 
 
 # ---------------------------------------------------------------------------
@@ -236,54 +241,6 @@ def _trend_chart(match_scores: list) -> go.Figure:
 # Cómputo de métricas desde partidas crudas
 # ---------------------------------------------------------------------------
 
-def _compute_metrics(matches: list[dict]) -> dict:
-    """Extrae promedios de métricas relevantes desde datos crudos."""
-    if not matches:
-        return {}
-    dur_mins = [max(m.get("duration_sec", 60) / 60, 1.0) for m in matches]
-    wins   = [m for m in matches if m.get("result") == "WIN"]
-    losses = [m for m in matches if m.get("result") == "LOSS"]
-
-    def avg_field(lst, key):
-        vals = [_safe(m, key) for m in lst]
-        vals = [v for v in vals if v is not None]
-        return _avg(vals) if vals else None
-
-    def avg_pm(lst, key):
-        vals = [_safe(m, key) for m in lst]
-        durs = [max(m.get("duration_sec", 60) / 60, 1.0) for m in lst]
-        pairs = [(v, d) for v, d in zip(vals, durs) if v is not None]
-        return _avg([v / d for v, d in pairs]) if pairs else None
-
-    deaths_all  = avg_field(matches, "deaths")
-    deaths_win  = avg_field(wins,    "deaths")
-    deaths_loss = avg_field(losses,  "deaths")
-
-    kp_vals = [_safe(m, "kill_participation") for m in matches]
-    kp_vals = [v for v in kp_vals if v is not None]
-    kp_win  = [_safe(m, "kill_participation") for m in wins if _safe(m, "kill_participation") is not None]
-    kp_loss = [_safe(m, "kill_participation") for m in losses if _safe(m, "kill_participation") is not None]
-
-    vs_vals = [_safe(m, "vision_score") for m in matches]
-    vs_vals = [v for v in vs_vals if v is not None]
-
-    return {
-        "cs_pm":       avg_pm(matches, "cs"),
-        "dmg_pm":      avg_pm(matches, "damage"),
-        "kp":          _avg(kp_vals) if kp_vals else None,
-        "kp_win":      _avg(kp_win)  if kp_win  else None,
-        "kp_loss":     _avg(kp_loss) if kp_loss else None,
-        "deaths":      deaths_all,
-        "deaths_win":  deaths_win,
-        "deaths_loss": deaths_loss,
-        "vision_pm":   avg_pm(matches, "vision_score"),
-        "gold_pm":     avg_pm(matches, "gold_earned"),
-        "obj_pm":      avg_pm(matches, "objective_damage"),
-        "n":           len(matches),
-        "n_wins":      len(wins),
-        "n_losses":    len(losses),
-    }
-
 
 def _problem_stats(cr, mx: dict) -> tuple:
     """
@@ -350,6 +307,46 @@ def _render_session_alert(warning: str) -> None:
         f'<div class="session-alert-title">ALERTA DE SESIÓN</div>'
         f'<div class="session-alert-body">{warning}</div>'
         f'</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _render_priorities(priorities: list[Priority]) -> None:
+    """Sección 🎯 MAYOR GANANCIA POTENCIAL — máximo 3 prioridades."""
+    if not priorities:
+        return
+
+    top3 = priorities[:3]
+
+    conf_badge = {
+        "medium": '<span class="prio-conf medium">preliminar</span>',
+        "high":   '<span class="prio-conf high">confiable</span>',
+    }
+
+    items_html = ""
+    for i, p in enumerate(top3, start=1):
+        bar_w   = round(p.impact_score / 20 * 100)
+        badge   = conf_badge.get(p.confidence, "")
+        items_html += (
+            f'<div class="prio-row">'
+            f'  <div class="prio-rank">#{i}</div>'
+            f'  <div class="prio-body">'
+            f'    <div class="prio-header">'
+            f'      <div class="prio-title">{p.title}</div>'
+            f'      <div class="prio-impact">+{p.impact_score} <span class="prio-impact-lbl">impacto</span></div>'
+            f'    </div>'
+            f'    <div class="prio-bar-track"><div class="prio-bar-fill" style="width:{bar_w}%"></div></div>'
+            f'    <div class="prio-evidence">{p.evidence}</div>'
+            f'    <div class="prio-rec">→ {p.recommendation} {badge}</div>'
+            f'  </div>'
+            f'</div>'
+        )
+
+    st.markdown(
+        f'<div class="prio-card">'
+        f'<div class="card-label">🎯 &nbsp;MAYOR GANANCIA POTENCIAL</div>'
+        f'{items_html}'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
@@ -723,12 +720,560 @@ def _trend_icon(slope: float) -> str:
     return '<span style="color:#6B7280">→</span>'
 
 
-def _render_champion_intelligence(cpa) -> None:
+def _hex_to_rgb(hex_color: str) -> str:
+    """Convierte '#RRGGBB' a 'R,G,B' para usar en rgba()."""
+    h = hex_color.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    return f"{r},{g},{b}"
+
+
+# ---------------------------------------------------------------------------
+# Champion Coach
+# ---------------------------------------------------------------------------
+
+_CC_PRIORITY_LABELS = {
+    "main":         ("MAIN",         "#8B5CF6"),
+    "growth":       ("GROWTH PICK",  "#22C55E"),
+    "risk":         ("RISK PICK",    "#EF4444"),
+    "insufficient": ("SIN DATOS",    "#6B7280"),
+}
+
+_CC_TREND_LABELS = {
+    "improving":    ("Mejorando",    "#22C55E"),
+    "declining":    ("Decayendo",    "#EF4444"),
+    "stable":       ("Estable",      "#F59E0B"),
+    "insufficient": ("—",            "#6B7280"),
+}
+
+_CC_PATTERN_ICONS = {
+    "deaths":      "💀",
+    "farm":        "🌾",
+    "damage":      "⚔️",
+    "kp":          "👥",
+    "consistency": "📊",
+}
+
+
+def _render_champion_coach(
+    result: ChampionCoachResult,
+    role: str,
+) -> None:
+    """Renderiza el panel completo de coaching para el campeón seleccionado."""
+    a = result.analysis
+    name = a.champion_name
+
+    # ── Hero del campeón ──────────────────────────────────────────────────────
+    prio_label, prio_color = _CC_PRIORITY_LABELS.get(result.priority_class, ("—", "#6B7280"))
+    trend_label, trend_color = _CC_TREND_LABELS.get(a.trend, ("—", "#6B7280"))
+    wr_color = _wr_color(a.winrate)
+    conf_map = {"low": "⚠️ Preliminar", "medium": "📊 En progreso", "high": "✅ Confiable"}
+    conf_str = conf_map.get(a.confidence, "—")
+    score_str = f"{a.avg_score:.0f}" if a.avg_score is not None else "—"
+
+    st.markdown(
+        f'<div class="cc-hero">'
+        f'  <div class="cc-hero-left">'
+        f'    <div class="cc-champ-name">{name}</div>'
+        f'    <div class="cc-prio-badge" style="background:rgba({_hex_to_rgb(prio_color)},0.15);'
+        f'color:{prio_color}">{prio_label}</div>'
+        f'  </div>'
+        f'  <div class="cc-hero-stats">'
+        f'    <div class="cc-hstat"><div class="cc-hstat-val">{a.games}</div><div class="cc-hstat-lbl">Partidas</div></div>'
+        f'    <div class="cc-hstat"><div class="cc-hstat-val" style="color:{wr_color}">{a.winrate:.0%}</div><div class="cc-hstat-lbl">WR</div></div>'
+        f'    <div class="cc-hstat"><div class="cc-hstat-val">{score_str}</div><div class="cc-hstat-lbl">Score</div></div>'
+        f'    <div class="cc-hstat"><div class="cc-hstat-val" style="color:{trend_color}">{trend_label}</div><div class="cc-hstat-lbl">Tendencia</div></div>'
+        f'    <div class="cc-hstat"><div class="cc-hstat-val cc-conf">{conf_str}</div><div class="cc-hstat-lbl">Análisis</div></div>'
+        f'  </div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ── Datos insuficientes ───────────────────────────────────────────────────
+    from backend.config.constants import MIN_CHAMPION_GAMES
+    if result.priority_class == "insufficient":
+        st.markdown(
+            f'<div class="card" style="color:#6B7280;font-size:0.82rem;padding:1rem 1.4rem">'
+            f'Necesitas al menos {MIN_CHAMPION_GAMES} partidas con {name} para activar el Champion Coach. '
+            f'Tienes {a.games} hasta ahora.'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+        return
+
+    # ── Problema principal + Objetivo ─────────────────────────────────────────
+    col_prob, col_goal = st.columns([1, 1], gap="medium")
+
+    with col_prob:
+        if result.primary_problem:
+            icon = "⚠️"
+            first_pattern = result.patterns[0] if result.patterns else None
+            desc = first_pattern.description if first_pattern else result.primary_problem
+            sev_color = "#EF4444" if (first_pattern and first_pattern.severity == "critical") else "#F59E0B"
+            st.markdown(
+                f'<div class="card cc-prob-card">'
+                f'<div class="card-label">⚠️ &nbsp;PROBLEMA PRINCIPAL</div>'
+                f'<div class="cc-prob-title" style="color:{sev_color}">{result.primary_problem.upper()}</div>'
+                f'<div class="cc-prob-desc">{desc}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                f'<div class="card cc-prob-card">'
+                f'<div class="card-label">✅ &nbsp;SIN PROBLEMAS DETECTADOS</div>'
+                f'<div class="cc-prob-desc" style="color:#22C55E">'
+                f'No se detectaron patrones negativos con {name} en tus últimas {a.games} partidas.'
+                f'</div></div>',
+                unsafe_allow_html=True,
+            )
+
+    with col_goal:
+        g = result.goal
+        if g:
+            lower_is_better = g.metric_key == "deaths"
+            diff = g.target - g.current
+            diff_color = "#22C55E" if (diff < 0 and lower_is_better) or (diff > 0 and not lower_is_better) else "#EF4444"
+            sign = "+" if diff >= 0 else ""
+            diff_str = f"{sign}{diff:.1f}" if g.metric_key != "damage" else f"{sign}{diff:.0f}"
+            st.markdown(
+                f'<div class="card cc-goal-card">'
+                f'<div class="card-label">🎯 &nbsp;OBJETIVO CON {name.upper()}</div>'
+                f'<div class="cc-goal-title">{g.title}</div>'
+                f'<div class="cc-goal-metrics">'
+                f'  <div class="cc-goal-m"><div class="cc-goal-val">{g.current:.1f}</div><div class="cc-goal-lbl">Actual</div></div>'
+                f'  <div class="cc-goal-arrow">→</div>'
+                f'  <div class="cc-goal-m"><div class="cc-goal-val">{g.target:.1f}</div><div class="cc-goal-lbl">Objetivo</div></div>'
+                f'  <div class="cc-goal-m"><div class="cc-goal-val" style="color:{diff_color}">{diff_str}</div><div class="cc-goal-lbl">Diferencia</div></div>'
+                f'</div>'
+                f'<div class="cc-goal-impact">{g.impact_desc}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                f'<div class="card cc-goal-card">'
+                f'<div class="card-label">🎯 &nbsp;OBJETIVO CON {name.upper()}</div>'
+                f'<div class="cc-prob-desc" style="color:#6B7280">'
+                f'Sin gap win/loss significativo detectado. Mantén tu nivel actual.'
+                f'</div></div>',
+                unsafe_allow_html=True,
+            )
+
+    # ── Fortalezas / Debilidades ──────────────────────────────────────────────
+    col_s, col_w = st.columns(2, gap="medium")
+    with col_s:
+        items = "".join(
+            f'<div class="compact-item"><span class="compact-icon-pos">✓</span>'
+            f'<span class="compact-text">{s}</span></div>'
+            for s in result.strengths
+        ) or '<div class="compact-empty">Acumula más partidas para detectar fortalezas.</div>'
+        st.markdown(
+            f'<div class="card compact-card"><div class="card-label">💪 &nbsp;FORTALEZAS CON {name.upper()}</div>'
+            f'{items}</div>',
+            unsafe_allow_html=True,
+        )
+    with col_w:
+        items = "".join(
+            f'<div class="compact-item"><span class="compact-icon-neg">⚠</span>'
+            f'<span class="compact-text">{w}</span></div>'
+            for w in result.weaknesses
+        ) or '<div class="compact-empty">Sin debilidades significativas detectadas.</div>'
+        st.markdown(
+            f'<div class="card compact-card"><div class="card-label">⚠️ &nbsp;DEBILIDADES CON {name.upper()}</div>'
+            f'{items}</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Patrones adicionales ──────────────────────────────────────────────────
+    remaining_patterns = result.patterns[1:]
+    if remaining_patterns:
+        items_html = ""
+        for p in remaining_patterns:
+            icon = _CC_PATTERN_ICONS.get(p.pattern_type, "📊")
+            sev_c = "#EF4444" if p.severity == "critical" else "#F59E0B"
+            items_html += (
+                f'<div class="mi-pattern-row">'
+                f'<span class="mi-pattern-icon">{icon}</span>'
+                f'<span class="mi-pattern-text" style="color:{sev_c}">{p.description}</span>'
+                f'</div>'
+            )
+        st.markdown(
+            f'<div class="card mi-pattern-card">'
+            f'<div class="card-label">🔍 &nbsp;PATRONES ADICIONALES</div>'
+            f'{items_html}</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Integración Matchup ───────────────────────────────────────────────────
+    if result.matchup_best or result.matchup_worst:
+        b = result.matchup_best  or "—"
+        w = result.matchup_worst or "—"
+        st.markdown(
+            f'<div class="card cc-matchup-row">'
+            f'<div class="card-label">🗡️ &nbsp;MATCHUPS CON {name.upper()}</div>'
+            f'<div style="display:flex;gap:2rem;margin-top:0.5rem">'
+            f'  <div><div style="font-size:0.68rem;color:#6B7280;text-transform:uppercase;letter-spacing:0.1em">Mejor rival</div>'
+            f'  <div style="font-size:1rem;font-weight:700;color:#22C55E">{b}</div></div>'
+            f'  <div><div style="font-size:0.68rem;color:#6B7280;text-transform:uppercase;letter-spacing:0.1em">Peor rival</div>'
+            f'  <div style="font-size:1rem;font-weight:700;color:#EF4444">{w}</div></div>'
+            f'</div></div>',
+            unsafe_allow_html=True,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Post Game Review
+# ---------------------------------------------------------------------------
+
+def _render_post_game_review(role_matches: list[dict], priorities: list) -> None:
+    """Sección 📝 POST GAME REVIEW — revisión rápida de la última partida."""
+    st.markdown(
+        '<div class="sec-header"><span class="sec-header-title">📝 &nbsp;POST GAME REVIEW</span></div>',
+        unsafe_allow_html=True,
+    )
+
+    if not role_matches:
+        st.markdown(
+            '<div class="card" style="color:#6B7280;font-size:0.85rem;padding:1.2rem 1.5rem">'
+            'Sin partidas registradas en este rol.</div>',
+            unsafe_allow_html=True,
+        )
+        return
+
+    # Selector de partida (las últimas 5)
+    opts = {}
+    for m in role_matches[:5]:
+        champ  = m.get("champion", "?")
+        result = "✓" if m.get("result") == "WIN" else "✗"
+        date   = (m.get("played_at") or "")[:10]
+        label  = f"{result} {champ} — {date}"
+        opts[label] = m
+
+    if not opts:
+        return
+
+    selected_label = st.selectbox(
+        "Partida",
+        list(opts.keys()),
+        key="pgr_match_select",
+        label_visibility="collapsed",
+    )
+    match = opts[selected_label]
+    champion = match.get("champion", "?")
+
+    # Patrones del Champion Coach para este campeón
+    from backend.services.champion_coach import analyze_champion as _analyze_champ
+    cc = _analyze_champ(role_matches, champion, role_matches[0].get("role", "ADC"))
+    patterns = cc.patterns if cc else []
+
+    review: PostGameReview = generate_review(
+        match           = match,
+        player_history  = role_matches,
+        champion_patterns = patterns,
+        priorities      = priorities,
+    )
+
+    # ── Cabecera: resultado + score ───────────────────────────────────────────
+    result_text  = "VICTORIA" if review.result == "WIN" else "DERROTA"
+    result_color = "#22C55E"  if review.result == "WIN" else "#EF4444"
+    score_str    = f"{review.score:.0f}" if review.score is not None else "—"
+    avg_str      = f"{review.score_avg:.0f}" if review.score_avg is not None else "—"
+    delta_str    = ""
+    if review.score_delta is not None:
+        sign = "+" if review.score_delta >= 0 else ""
+        delta_color = "#22C55E" if review.score_delta >= 0 else "#EF4444"
+        delta_str = f'<span style="color:{delta_color};font-size:0.85rem;margin-left:0.5rem">{sign}{review.score_delta:.0f} vs promedio</span>'
+
+    conf_map = {"low": "⚠️ Muestra baja", "medium": "📊 Preliminar", "high": "✅ Confiable"}
+    conf_str = conf_map.get(review.confidence, "—")
+
+    st.markdown(
+        f'<div class="card pgr-hero">'
+        f'  <div class="pgr-hero-left">'
+        f'    <div class="pgr-result" style="color:{result_color}">{result_text}</div>'
+        f'    <div class="pgr-champ">{review.champion}</div>'
+        f'    <div class="pgr-rating" style="color:{review.rating_color}">{review.rating}</div>'
+        f'  </div>'
+        f'  <div class="pgr-hero-right">'
+        f'    <div class="pgr-score-block">'
+        f'      <div class="pgr-score-val">{score_str}{delta_str}</div>'
+        f'      <div class="pgr-score-lbl">Score · Promedio reciente: {avg_str}</div>'
+        f'    </div>'
+        f'    <div class="pgr-conf">{conf_str}</div>'
+        f'  </div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ── Lo mejor / Lo peor ───────────────────────────────────────────────────
+    col_ok, col_bad = st.columns(2, gap="medium")
+
+    with col_ok:
+        items = "".join(
+            f'<div class="compact-item"><span class="compact-icon-pos">✓</span>'
+            f'<span class="compact-text">{s}</span></div>'
+            for s in review.strengths
+        ) or '<div class="compact-empty">Sin mejoras destacables respecto a tu promedio.</div>'
+        st.markdown(
+            f'<div class="card compact-card"><div class="card-label">✅ &nbsp;LO MEJOR</div>'
+            f'{items}</div>',
+            unsafe_allow_html=True,
+        )
+
+    with col_bad:
+        items = "".join(
+            f'<div class="compact-item"><span class="compact-icon-neg">⚠</span>'
+            f'<span class="compact-text">{e}</span></div>'
+            for e in review.mistakes
+        ) or '<div class="compact-empty">Sin errores destacables respecto a tu promedio.</div>'
+        st.markdown(
+            f'<div class="card compact-card"><div class="card-label">⚠️ &nbsp;LO PEOR</div>'
+            f'{items}</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Foco próxima partida ──────────────────────────────────────────────────
+    if review.focus:
+        st.markdown(
+            f'<div class="card pgr-focus">'
+            f'  <div class="card-label">🎯 &nbsp;PRÓXIMA PARTIDA</div>'
+            f'  <div class="pgr-focus-text">{review.focus}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Comparaciones métricas ────────────────────────────────────────────────
+    if review.comparisons:
+        verdict_color = {"Mejor de lo normal": "#22C55E", "Peor de lo normal": "#EF4444", "Normal": "#6B7280"}
+        rows_html = ""
+        for c in review.comparisons:
+            vc = verdict_color.get(c.verdict, "#6B7280")
+            rows_html += (
+                f'<div class="pgr-cmp-row">'
+                f'  <div class="pgr-cmp-label">{c.label}</div>'
+                f'  <div class="pgr-cmp-now">{c.current:.1f} <span class="pgr-cmp-unit">{c.unit}</span></div>'
+                f'  <div class="pgr-cmp-avg">Promedio: {c.avg:.1f}</div>'
+                f'  <div class="pgr-cmp-verdict" style="color:{vc}">{c.verdict}</div>'
+                f'</div>'
+            )
+        st.markdown(
+            f'<div class="card pgr-cmp-card">'
+            f'<div class="card-label">📊 &nbsp;COMPARACIÓN vs PROMEDIO</div>'
+            f'{rows_html}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Contexto matchup ──────────────────────────────────────────────────────
+    if review.matchup_context:
+        st.markdown(
+            f'<div class="card pgr-matchup">'
+            f'<div class="card-label">🗡️ &nbsp;MATCHUP</div>'
+            f'<div class="pgr-matchup-text">{review.matchup_context}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Problema recurrente del Champion Coach ────────────────────────────────
+    if review.champion_problem:
+        repeat_html = ""
+        if review.pattern_repeated:
+            repeat_html = '<div class="pgr-repeat-badge">Patrón repetido detectado hoy</div>'
+        st.markdown(
+            f'<div class="card pgr-champ-prob">'
+            f'<div class="card-label">🏅 &nbsp;PROBLEMA RECURRENTE CON {review.champion.upper()}</div>'
+            f'<div class="pgr-champ-prob-text">{review.champion_problem}</div>'
+            f'{repeat_html}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Errores repetidos ─────────────────────────────────────────────────────
+    if review.repeated_mistakes:
+        items_html = "".join(
+            f'<div class="pgr-rep-item">🔁 {e}</div>'
+            for e in review.repeated_mistakes
+        )
+        st.markdown(
+            f'<div class="card pgr-rep-card">'
+            f'<div class="card-label">🔁 &nbsp;ERRORES REPETIDOS</div>'
+            f'{items_html}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+
+_CI_MIN_GAMES = 10   # partidas mínimas para análisis Champion Intelligence
+
+# ---------------------------------------------------------------------------
+# Matchup Intelligence
+# ---------------------------------------------------------------------------
+
+_MI_MIN_COVERAGE = 5   # mínimo de partidas con raw JSON para mostrar la sección
+
+
+def _conf_badge(confidence: str) -> str:
+    if confidence == "high":
+        return '<span class="mi-badge high">confiable</span>'
+    if confidence == "medium":
+        return '<span class="mi-badge medium">preliminar</span>'
+    return '<span class="mi-badge low">muestra baja</span>'
+
+
+def _wr_bar(wr: float) -> str:
+    pct   = round(wr * 100)
+    color = _wr_color(wr)
+    return (
+        f'<div class="mi-wr-bar-track">'
+        f'<div class="mi-wr-bar-fill" style="width:{pct}%;background:{color}"></div>'
+        f'</div>'
+    )
+
+
+def _matchup_row_html(r: MatchupRecord, label_color: str) -> str:
+    wr_c   = _wr_color(r.winrate)
+    badge  = _conf_badge(r.confidence)
+    bar    = _wr_bar(r.winrate)
+    deaths = f"{r.avg_deaths:.1f}"
+    cs     = f"{r.avg_cs_min:.1f}" if r.avg_cs_min else "—"
+    return (
+        f'<div class="mi-row">'
+        f'  <div class="mi-row-name" style="color:{label_color}">{r.enemy}</div>'
+        f'  <div class="mi-row-meta">{r.games}P {badge}</div>'
+        f'  <div class="mi-row-wr" style="color:{wr_c}">{r.winrate:.0%}</div>'
+        f'  {bar}'
+        f'  <div class="mi-row-stats">'
+        f'    <span class="mi-row-stat">💀 {deaths}</span>'
+        f'    <span class="mi-row-stat">🌾 {cs}/min</span>'
+        f'  </div>'
+        f'</div>'
+    )
+
+
+def _render_matchup_intelligence(result: MatchupResult) -> None:
+    st.markdown(
+        '<div class="sec-header"><span class="sec-header-title">🗡️ &nbsp;MATCHUP INTELLIGENCE</span></div>',
+        unsafe_allow_html=True,
+    )
+
+    if result.raw_coverage < _MI_MIN_COVERAGE:
+        st.markdown(
+            f'<div class="card mi-insuf">'
+            f'  <div class="mi-insuf-title">Datos insuficientes</div>'
+            f'  <div class="mi-insuf-sub">'
+            f'    Se necesitan al menos {_MI_MIN_COVERAGE} partidas con datos de rivales disponibles. '
+            f'    Actualmente: {result.raw_coverage} / {_MI_MIN_COVERAGE}.'
+            f'  </div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+        return
+
+    # ── Fila superior: Mejores / Peores / Ban ───────────────────────────────
+    col_best, col_worst, col_ban = st.columns([1, 1, 1], gap="medium")
+
+    with col_best:
+        rows_html = "".join(_matchup_row_html(r, "#22C55E") for r in result.best)
+        no_data   = '<div class="mi-empty">Sin matchups favorables con muestra suficiente aún.</div>'
+        st.markdown(
+            f'<div class="card mi-card">'
+            f'<div class="card-label">✅ &nbsp;MEJORES MATCHUPS</div>'
+            f'{rows_html or no_data}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    with col_worst:
+        rows_html = "".join(_matchup_row_html(r, "#EF4444") for r in result.worst)
+        no_data   = '<div class="mi-empty">Sin matchups problemáticos identificados aún.</div>'
+        st.markdown(
+            f'<div class="card mi-card">'
+            f'<div class="card-label">❌ &nbsp;PEORES MATCHUPS</div>'
+            f'{rows_html or no_data}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    with col_ban:
+        ban = result.ban
+        if ban:
+            wr_c     = _wr_color(ban.winrate)
+            badge    = _conf_badge(ban.confidence)
+            bar      = _wr_bar(ban.winrate)
+            reasons_html = "".join(
+                f'<div class="mi-ban-reason">• {r}</div>'
+                for r in ban.reasons
+            )
+            st.markdown(
+                f'<div class="card mi-card mi-ban-card">'
+                f'<div class="card-label">🚫 &nbsp;BAN RECOMENDADO</div>'
+                f'<div class="mi-ban-name">{ban.enemy}</div>'
+                f'<div class="mi-ban-meta">{ban.games}P &nbsp;·&nbsp; '
+                f'<span style="color:{wr_c};font-weight:700">{ban.winrate:.0%} WR</span>'
+                f' {badge}</div>'
+                f'{bar}'
+                f'<div class="mi-ban-reasons">{reasons_html}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                '<div class="card mi-card"><div class="card-label">🚫 &nbsp;BAN RECOMENDADO</div>'
+                '<div class="mi-empty">Sin datos suficientes para recomendar un ban.</div>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+
+    # ── Patrones detectados ─────────────────────────────────────────────────
+    if result.patterns:
+        critical = [p for p in result.patterns if p.severity == "critical"]
+        warnings = [p for p in result.patterns if p.severity == "warning"]
+
+        items_html = ""
+        for p in critical + warnings:
+            icon = "🔴" if p.severity == "critical" else "🟡"
+            items_html += (
+                f'<div class="mi-pattern-row">'
+                f'<span class="mi-pattern-icon">{icon}</span>'
+                f'<span class="mi-pattern-text">{p.description}</span>'
+                f'</div>'
+            )
+
+        st.markdown(
+            f'<div class="card mi-pattern-card">'
+            f'<div class="card-label">🔍 &nbsp;PATRONES DETECTADOS</div>'
+            f'{items_html}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+
+def _render_champion_intelligence(cpa, n_role_matches: int = 0) -> None:
 
     st.markdown(
         '<div class="sec-header"><span class="sec-header-title">🏆 &nbsp;CHAMPION INTELLIGENCE</span></div>',
         unsafe_allow_html=True,
     )
+
+    if n_role_matches < _CI_MIN_GAMES:
+        progress_pct = round(n_role_matches / _CI_MIN_GAMES * 100)
+        st.markdown(
+            f'<div class="card ci-insuf">'
+            f'  <div class="ci-insuf-title">Datos insuficientes</div>'
+            f'  <div class="ci-insuf-sub">'
+            f'    Necesitas al menos {_CI_MIN_GAMES} partidas en este rol para activar Champion Intelligence.'
+            f'  </div>'
+            f'  <div class="ci-insuf-progress">'
+            f'    <div class="ci-insuf-bar-track">'
+            f'      <div class="ci-insuf-bar-fill" style="width:{progress_pct}%"></div>'
+            f'    </div>'
+            f'    <div class="ci-insuf-count">{n_role_matches} / {_CI_MIN_GAMES} partidas</div>'
+            f'  </div>'
+            f'  <div class="ci-insuf-tip">Consejo: juega al menos 3 partidas por campeón para un análisis de pool completo.</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+        return
 
     if cpa.total_games == 0:
         st.markdown(
@@ -861,8 +1406,7 @@ def _render_champion_intelligence(cpa) -> None:
 # ---------------------------------------------------------------------------
 
 def render() -> None:
-    puuid = db.get_config("puuid")
-    if not puuid:
+    if not db.get_config("puuid"):
         st.markdown(
             '<div class="locked-screen">'
             '<div class="ls-icon">🔒</div>'
@@ -873,51 +1417,49 @@ def render() -> None:
         )
         return
 
-    player = db.get_player(puuid)
-    name   = player["riot_id"] if player else "Invocador"
-    rank   = player.get("rank", "Sin rango") if player else "—"
-    lp     = player.get("lp", 0) if player else 0
-
-    # ── Header ───────────────────────────────────────────
+    # ── Selectores (determinan qué construye el ViewModel) ────────────────────
     col_h, col_rol, col_win, col_sync = st.columns([3, 1, 1.5, 1.2], gap="small")
-    with col_h:
-        st.markdown(
-            f'<div class="pg-title">¡Hola, {name}! 👋</div>'
-            '<div class="pg-subtitle">Aquí tienes tu plan de mejora personalizado.</div>',
-            unsafe_allow_html=True,
-        )
+    window_opts = {"Últimas 10": 10, "Últimas 20": 20, "Últimas 30": 30, "Todas": 200}
     with col_rol:
         role = st.selectbox("Rol", ["ADC", "TOP"], key="coaching_role", label_visibility="collapsed")
     with col_win:
-        window_opts = {"Últimas 10": 10, "Últimas 20": 20, "Últimas 30": 30, "Todas": 200}
-        window_lbl  = st.selectbox("Ventana", list(window_opts.keys()), index=1, key="coaching_window", label_visibility="collapsed")
-    with col_sync:
-        all_m = resolve_matches(limit=1)
-        if all_m and all_m[0].get("played_at"):
-            last_date = all_m[0]["played_at"][:10]
-            st.markdown(f'<div class="pg-sync">Datos al {last_date}</div>', unsafe_allow_html=True)
+        window_lbl = st.selectbox("Ventana", list(window_opts.keys()), index=1, key="coaching_window", label_visibility="collapsed")
 
+    # ── Construir ViewModel (toda la lógica de datos vive aquí) ──────────────
+    limit = window_opts[window_lbl]
+    vm    = build_coaching(role, limit)
+
+    # ── Header (requiere vm para nombre y fecha) ──────────────────────────────
+    with col_h:
+        st.markdown(
+            f'<div class="pg-title">¡Hola, {vm.player_name}! 👋</div>'
+            '<div class="pg-subtitle">Aquí tienes tu plan de mejora personalizado.</div>',
+            unsafe_allow_html=True,
+        )
+    with col_sync:
+        if vm.last_match_date:
+            st.markdown(f'<div class="pg-sync">Datos al {vm.last_match_date}</div>', unsafe_allow_html=True)
     st.markdown('<hr style="margin:0.75rem 0 1.25rem">', unsafe_allow_html=True)
 
-    # ── Obtener datos ─────────────────────────────────────
-    limit        = window_opts[window_lbl]
-    all_matches  = resolve_matches(limit=max(limit + 50, 200))
-    role_matches = [m for m in all_matches if m.get("role") == role][:limit]
-
-    if not role_matches:
+    if not vm.has_data:
         st.info(f"No hay partidas de {role} guardadas. Ve a **Partidas** y descarga tu historial.")
         return
 
-    # ── Calcular ──────────────────────────────────────────
-    sr = scorer_v2.analyze_player(role_matches, role)
-    cr = coaching_engine.analyze_coaching(sr, role_matches, role)
-    mx = _compute_metrics(role_matches)
+    sr         = vm.score_result
+    cr         = vm.coaching_result
+    mx         = dataclasses.asdict(vm.metrics)
+    priorities = vm.priorities
+    matchups   = vm.matchup_result
+    role_matches = vm.role_matches
 
     # ── Nivel 0: Alerta de sesión ─────────────────────────
     _render_session_alert(cr.session_warning)
 
     # ── Nivel 1: Hero — Score + contexto inmediato ────────
     _render_hero(sr, mx, cr)
+
+    # ── Nivel 1.5: Mayores ganancias potenciales ──────────
+    _render_priorities(priorities)
 
     # ── Nivel 2+3: Problema Principal + Objetivo Semanal ──
     c_prob, c_obj = st.columns([2, 1], gap="medium")
@@ -935,8 +1477,30 @@ def render() -> None:
     _render_strengths_weaknesses(cr, role)
 
     # ── Champion Intelligence ──────────────────────────────
-    cpa = analyze_champion_pool(role_matches, role, sr.match_scores)
-    _render_champion_intelligence(cpa)
+    _render_champion_intelligence(vm.champion_pool, n_role_matches=vm.sample_size)
+
+    # ── Matchup Intelligence ───────────────────────────────
+    _render_matchup_intelligence(matchups)
+
+    # ── Post Game Review ──────────────────────────────────
+    _render_post_game_review(role_matches, priorities)
+
+    # ── Champion Coach ─────────────────────────────────────
+    st.markdown(
+        '<div class="sec-header"><span class="sec-header-title">🏅 &nbsp;CHAMPION COACH</span></div>',
+        unsafe_allow_html=True,
+    )
+    if vm.available_champions:
+        selected_champ = st.selectbox(
+            "Selecciona campeón",
+            vm.available_champions,
+            key="cc_champion_select",
+            label_visibility="collapsed",
+        )
+        cc_result = build_champion_coach(vm, selected_champ)
+        _render_champion_coach(cc_result, role)
+    else:
+        st.info(f"No hay partidas de {role} guardadas para Champion Coach.")
 
     # ── Evolución (gráficos) ───────────────────────────────
     st.markdown('<div class="sec-header"><span class="sec-header-title">📈 &nbsp;EVOLUCIÓN</span></div>', unsafe_allow_html=True)

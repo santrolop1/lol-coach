@@ -739,12 +739,335 @@ h1, h2, h3 { color: #FFFFFF !important; }
     letter-spacing: 0.06em; text-transform: uppercase; margin: 0.1rem 0 0.5rem; }
 .goal-window        { font-size: 0.72rem; color: #6B7280; margin-top: 0.5rem; }
 
+/* ═══════════════════════════════════════════════
+   PRIORITY ENGINE — 🎯 MAYOR GANANCIA POTENCIAL
+═══════════════════════════════════════════════ */
+.prio-card {
+    background: linear-gradient(135deg, rgba(16,24,40,0.9) 0%, rgba(17,24,39,0.9) 100%);
+    border: 1px solid rgba(139,92,246,0.25);
+    border-left: 3px solid #8B5CF6;
+    border-radius: 12px;
+    padding: 1.1rem 1.3rem;
+    margin-bottom: 0.85rem;
+}
+.prio-row {
+    display: flex; align-items: flex-start; gap: 0.9rem;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.prio-row:last-child { border-bottom: none; }
+.prio-rank {
+    font-size: 1.1rem; font-weight: 900; color: #8B5CF6;
+    min-width: 2rem; padding-top: 0.1rem;
+}
+.prio-body { flex: 1; min-width: 0; }
+.prio-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 0.3rem;
+}
+.prio-title {
+    font-size: 0.85rem; font-weight: 700; color: #D1D5DB;
+}
+.prio-impact {
+    font-size: 1rem; font-weight: 900; color: #22C55E;
+    white-space: nowrap; margin-left: 0.75rem;
+}
+.prio-impact-lbl {
+    font-size: 0.62rem; font-weight: 500; color: #6B7280;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    margin-left: 0.2rem;
+}
+.prio-bar-track {
+    height: 4px; background: rgba(255,255,255,0.06);
+    border-radius: 2px; margin-bottom: 0.4rem; overflow: hidden;
+}
+.prio-bar-fill {
+    height: 100%; background: linear-gradient(90deg,#8B5CF6,#22C55E);
+    border-radius: 2px; transition: width 0.4s ease;
+}
+.prio-evidence {
+    font-size: 0.76rem; color: #9CA3AF; line-height: 1.45;
+    margin-bottom: 0.25rem;
+}
+.prio-rec {
+    font-size: 0.76rem; color: #D1D5DB; font-weight: 500; line-height: 1.4;
+}
+.prio-conf {
+    display: inline-block; font-size: 0.62rem; font-weight: 600;
+    padding: 0.1rem 0.45rem; border-radius: 4px;
+    text-transform: uppercase; letter-spacing: 0.06em; margin-left: 0.4rem;
+}
+.prio-conf.medium { background: rgba(245,158,11,0.15); color: #F59E0B; }
+.prio-conf.high   { background: rgba(34,197,94,0.12);  color: #22C55E; }
+
+/* ═══════════════════════════════════════════════
+   CHAMPION INTELLIGENCE — datos insuficientes
+═══════════════════════════════════════════════ */
+.ci-insuf {
+    padding: 1.1rem 1.5rem;
+}
+.ci-insuf-title {
+    font-size: 0.9rem; font-weight: 700; color: #D1D5DB;
+    margin-bottom: 0.3rem;
+}
+.ci-insuf-sub {
+    font-size: 0.78rem; color: #9CA3AF; line-height: 1.45;
+    margin-bottom: 0.75rem;
+}
+.ci-insuf-progress {
+    display: flex; align-items: center; gap: 0.75rem;
+    margin-bottom: 0.6rem;
+}
+.ci-insuf-bar-track {
+    flex: 1; height: 6px; background: rgba(255,255,255,0.06);
+    border-radius: 3px; overflow: hidden;
+}
+.ci-insuf-bar-fill {
+    height: 100%; background: #8B5CF6; border-radius: 3px;
+    transition: width 0.4s ease;
+}
+.ci-insuf-count {
+    font-size: 0.8rem; font-weight: 700; color: #8B5CF6;
+    white-space: nowrap;
+}
+.ci-insuf-tip {
+    font-size: 0.73rem; color: #6B7280; font-style: italic;
+}
+
 /* Sidebar: Config secundario */
 [data-testid="stSidebar"] .stRadio > div > label:last-child {
     opacity: 0.65 !important;
     font-size: 0.78rem !important;
     font-weight: 400 !important;
 }
+
+/* ═══════════════════════════════════════════════
+   MATCHUP INTELLIGENCE
+═══════════════════════════════════════════════ */
+.mi-card {
+    padding: 0.9rem 1.1rem; min-height: 120px;
+}
+.mi-row {
+    padding: 0.45rem 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.mi-row:last-child { border-bottom: none; }
+.mi-row-name {
+    font-size: 0.82rem; font-weight: 700; margin-bottom: 0.1rem;
+}
+.mi-row-meta {
+    font-size: 0.68rem; color: #6B7280; margin-bottom: 0.25rem;
+    display: flex; align-items: center; gap: 0.35rem;
+}
+.mi-row-wr {
+    font-size: 1rem; font-weight: 900; margin-bottom: 0.2rem;
+}
+.mi-wr-bar-track {
+    height: 4px; background: rgba(255,255,255,0.06);
+    border-radius: 2px; margin-bottom: 0.3rem; overflow: hidden;
+}
+.mi-wr-bar-fill {
+    height: 100%; border-radius: 2px; transition: width 0.4s ease;
+}
+.mi-row-stats {
+    display: flex; gap: 0.75rem;
+}
+.mi-row-stat {
+    font-size: 0.7rem; color: #9CA3AF;
+}
+.mi-badge {
+    display: inline-block; font-size: 0.60rem; font-weight: 600;
+    padding: 0.08rem 0.4rem; border-radius: 3px;
+    text-transform: uppercase; letter-spacing: 0.06em;
+}
+.mi-badge.high   { background: rgba(34,197,94,0.12);  color: #22C55E; }
+.mi-badge.medium { background: rgba(245,158,11,0.12); color: #F59E0B; }
+.mi-badge.low    { background: rgba(107,114,128,0.12);color: #6B7280; }
+.mi-empty {
+    font-size: 0.78rem; color: #6B7280; padding: 0.5rem 0;
+}
+/* Ban card */
+.mi-ban-card { border-left: 3px solid #EF4444; }
+.mi-ban-name {
+    font-size: 1.2rem; font-weight: 900; color: #EF4444;
+    margin: 0.3rem 0 0.15rem;
+}
+.mi-ban-meta {
+    font-size: 0.72rem; color: #9CA3AF; margin-bottom: 0.4rem;
+    display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;
+}
+.mi-ban-reasons { margin-top: 0.5rem; }
+.mi-ban-reason {
+    font-size: 0.72rem; color: #D1D5DB; line-height: 1.5;
+}
+/* Pattern card */
+.mi-pattern-card {
+    padding: 0.9rem 1.1rem; margin-top: 0.85rem;
+}
+.mi-pattern-row {
+    display: flex; align-items: flex-start; gap: 0.6rem;
+    padding: 0.35rem 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.mi-pattern-row:last-child { border-bottom: none; }
+.mi-pattern-icon { font-size: 0.85rem; margin-top: 0.05rem; flex-shrink: 0; }
+.mi-pattern-text { font-size: 0.76rem; color: #D1D5DB; line-height: 1.45; }
+/* Insufficient data */
+.mi-insuf {
+    padding: 1rem 1.4rem;
+}
+.mi-insuf-title {
+    font-size: 0.88rem; font-weight: 700; color: #D1D5DB; margin-bottom: 0.3rem;
+}
+.mi-insuf-sub {
+    font-size: 0.77rem; color: #9CA3AF; line-height: 1.45;
+}
+
+/* ═══════════════════════════════════════════════
+   CHAMPION COACH
+═══════════════════════════════════════════════ */
+.cc-hero {
+    background: linear-gradient(135deg,rgba(16,24,40,0.9),rgba(17,24,39,0.9));
+    border: 1px solid rgba(139,92,246,0.2);
+    border-radius: 12px;
+    padding: 1.1rem 1.4rem;
+    display: flex; align-items: center;
+    justify-content: space-between; gap: 1.5rem;
+    margin-bottom: 0.85rem; flex-wrap: wrap;
+}
+.cc-hero-left { display: flex; flex-direction: column; gap: 0.45rem; }
+.cc-champ-name {
+    font-size: 1.5rem; font-weight: 900; color: #FFFFFF;
+    letter-spacing: 0.02em;
+}
+.cc-prio-badge {
+    display: inline-block; font-size: 0.68rem; font-weight: 700;
+    padding: 0.2rem 0.65rem; border-radius: 6px;
+    text-transform: uppercase; letter-spacing: 0.1em;
+    width: fit-content;
+}
+.cc-hero-stats {
+    display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: center;
+}
+.cc-hstat { text-align: center; min-width: 60px; }
+.cc-hstat-val {
+    font-size: 1.1rem; font-weight: 800; color: #D1D5DB; line-height: 1.1;
+}
+.cc-hstat-lbl {
+    font-size: 0.62rem; color: #6B7280; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.1em; margin-top: 0.15rem;
+}
+.cc-conf { font-size: 0.72rem !important; font-weight: 600 !important; }
+/* Problema principal */
+.cc-prob-card { padding: 1rem 1.2rem; }
+.cc-prob-title {
+    font-size: 0.85rem; font-weight: 800;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    margin: 0.3rem 0 0.5rem;
+}
+.cc-prob-desc {
+    font-size: 0.77rem; color: #9CA3AF; line-height: 1.5;
+}
+/* Objetivo */
+.cc-goal-card { padding: 1rem 1.2rem; }
+.cc-goal-title {
+    font-size: 0.82rem; font-weight: 700; color: #D1D5DB;
+    margin: 0.3rem 0 0.6rem;
+}
+.cc-goal-metrics {
+    display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;
+}
+.cc-goal-m { text-align: center; }
+.cc-goal-val {
+    font-size: 1.1rem; font-weight: 900; color: #D1D5DB;
+}
+.cc-goal-lbl {
+    font-size: 0.60rem; color: #6B7280; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.08em;
+}
+.cc-goal-arrow {
+    font-size: 1.2rem; color: #6B7280; margin: 0 0.25rem;
+}
+.cc-goal-impact {
+    font-size: 0.73rem; color: #6B7280; font-style: italic; line-height: 1.4;
+}
+/* Matchup row */
+.cc-matchup-row { padding: 0.9rem 1.1rem; margin-top: 0.85rem; }
+
+/* ═══════════════════════════════════════════════
+   POST GAME REVIEW
+═══════════════════════════════════════════════ */
+.pgr-hero {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    padding: 1.1rem 1.4rem; margin-bottom: 0.85rem;
+}
+.pgr-hero-left  { display: flex; flex-direction: column; gap: 0.3rem; }
+.pgr-hero-right { display: flex; flex-direction: column; align-items: flex-end; gap: 0.4rem; }
+.pgr-result {
+    font-size: 0.7rem; font-weight: 800; letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+.pgr-champ {
+    font-size: 1.25rem; font-weight: 800; color: #FFFFFF;
+}
+.pgr-rating {
+    font-size: 0.78rem; font-weight: 700; letter-spacing: 0.06em;
+}
+.pgr-score-block { text-align: right; }
+.pgr-score-val {
+    font-size: 1.6rem; font-weight: 900; color: #FFFFFF; line-height: 1;
+}
+.pgr-score-lbl {
+    font-size: 0.68rem; color: #6B7280; margin-top: 0.2rem; text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+.pgr-conf { font-size: 0.72rem; color: #6B7280; }
+
+/* Foco próxima partida */
+.pgr-focus { padding: 1rem 1.4rem; margin-bottom: 0.85rem; }
+.pgr-focus-text {
+    font-size: 1.05rem; font-weight: 700; color: #8B5CF6; margin-top: 0.5rem;
+}
+
+/* Comparaciones */
+.pgr-cmp-card { padding: 0.85rem 1.4rem; margin-bottom: 0.85rem; }
+.pgr-cmp-row {
+    display: grid;
+    grid-template-columns: 110px 1fr 1fr 1fr;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.pgr-cmp-row:last-child { border-bottom: none; }
+.pgr-cmp-label { font-size: 0.78rem; color: #9CA3AF; font-weight: 600; }
+.pgr-cmp-now   { font-size: 0.9rem;  color: #FFFFFF; font-weight: 700; }
+.pgr-cmp-unit  { font-size: 0.68rem; color: #6B7280; font-weight: 400; }
+.pgr-cmp-avg   { font-size: 0.75rem; color: #6B7280; }
+.pgr-cmp-verdict { font-size: 0.75rem; font-weight: 700; text-align: right; }
+
+/* Matchup context */
+.pgr-matchup { padding: 0.85rem 1.4rem; margin-bottom: 0.85rem; }
+.pgr-matchup-text { font-size: 0.88rem; color: #D1D5DB; margin-top: 0.4rem; line-height: 1.5; }
+
+/* Problema recurrente */
+.pgr-champ-prob { padding: 0.85rem 1.4rem; margin-bottom: 0.85rem; }
+.pgr-champ-prob-text { font-size: 0.9rem; color: #F59E0B; margin-top: 0.4rem; font-weight: 600; }
+.pgr-repeat-badge {
+    display: inline-block; margin-top: 0.5rem;
+    background: rgba(239,68,68,0.15); color: #EF4444;
+    border: 1px solid rgba(239,68,68,0.3); border-radius: 6px;
+    font-size: 0.7rem; font-weight: 700; padding: 0.2rem 0.6rem;
+    letter-spacing: 0.06em; text-transform: uppercase;
+}
+
+/* Errores repetidos */
+.pgr-rep-card { padding: 0.85rem 1.4rem; margin-bottom: 0.85rem; }
+.pgr-rep-item {
+    font-size: 0.85rem; color: #F59E0B; padding: 0.3rem 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.pgr-rep-item:last-child { border-bottom: none; }
 
 /* ═══════════════════════════════════════════════
    ONBOARDING

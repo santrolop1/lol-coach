@@ -1,0 +1,110 @@
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/inter/700.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background:          222 47% 5%;
+    --foreground:          210 40% 96%;
+
+    --card:                222 47% 8%;
+    --card-foreground:     210 40% 96%;
+
+    --popover:             222 47% 7%;
+    --popover-foreground:  210 40% 96%;
+
+    --primary:             263 65% 61%;
+    --primary-foreground:  210 40% 98%;
+
+    --secondary:           217 33% 14%;
+    --secondary-foreground: 210 40% 96%;
+
+    --muted:               217 33% 14%;
+    --muted-foreground:    215 20% 55%;
+
+    --accent:              189 94% 43%;
+    --accent-foreground:   222 47% 5%;
+
+    --destructive:         0 72% 51%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border:              217 33% 18%;
+    --input:               217 33% 18%;
+    --ring:                263 65% 61%;
+
+    --radius:              0.75rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+    box-sizing: border-box;
+  }
+
+  html, body, #root {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    user-select: none;
+  }
+
+  /* Scrollbar personalizado */
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground/40;
+  }
+}
+
+@layer utilities {
+  /* Región de arrastre de ventana (Electron) */
+  .drag-region {
+    -webkit-app-region: drag;
+  }
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+
+  /* Texto con gradiente */
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-primary to-accent;
+  }
+
+  /* Superficie con borde sutil */
+  .surface {
+    @apply bg-card border border-border rounded-lg;
+  }
+
+  /* Shimmer para skeletons */
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--muted)) 0%,
+      hsl(217 33% 20%) 50%,
+      hsl(var(--muted)) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.8s linear infinite;
+  }
+}
