@@ -126,6 +126,58 @@ THRESHOLDS = {
             "direction": "above",
         },
     },
+    "MID": {
+        "deaths_high": {
+            "value": 6.0,
+            "source": "research",
+            "direction": "above",
+            "note": "MID en Gold/Plat no debería promediar >6 muertes. "
+                    "Umbral igual al de ADC: MID absorbe más ganks que TOP "
+                    "(línea corta, prioridad de jungla) pero una media >6 "
+                    "indica sobre-extensión sistemática.",
+        },
+        "cs_at_10_low": {
+            "value": 60,
+            "source": "research",
+            "direction": "below",
+            "note": "MID es solo lane: en Gold debería llegar a 60+ CS a los "
+                    "10 min, igual que TOP.",
+        },
+        "kill_participation_low": {
+            "value": 0.50,
+            "source": "research",
+            "direction": "below",
+            "note": "MID con prioridad de línea debería participar en >50% de "
+                    "kills. KP es el mejor proxy de roaming disponible en "
+                    "Riot API (no hay datos de posición en el mapa).",
+        },
+        "damage_score_low": {
+            "value": 40.0,
+            "source": "data",
+            "direction": "below",
+            "note": "Dimensión Damage Impact en P40 de distribución propia.",
+        },
+        "lane_score_low": {
+            "value": 40.0,
+            "source": "data",
+            "direction": "below",
+        },
+        "consistency_low": {
+            "value": 65.0,
+            "source": "hybrid",
+            "direction": "below",
+        },
+        "tilt_consecutive_losses": {
+            "value": 4,
+            "source": "research",
+            "direction": "above",
+        },
+        "losing_streak": {
+            "value": 3,
+            "source": "research",
+            "direction": "above",
+        },
+    },
 }
 
 
@@ -477,6 +529,185 @@ TOP_PROBLEMS = {
 
 
 # ---------------------------------------------------------------------------
+# Definiciones de problemas — MID
+# ---------------------------------------------------------------------------
+
+MID_PROBLEMS = {
+
+    "TILT_SESSION": {
+        "name":           "Sesión de tilt activa",
+        "display_name":   "Sesión de tilt activa",
+        "probable_cause": (
+            "4+ derrotas consecutivas en el mismo día generan decisiones "
+            "reactivas. En MID el tilt se manifiesta como roams forzados sin "
+            "estado de ola favorable y all-ins en match-ups que no los permiten."
+        ),
+        "impact": (
+            "Un MID en tilt pierde la prioridad de línea intentando 'hacer que "
+            "pase algo'. Cada roam fallido regala ola y platos, y las muertes "
+            "en river alimentan al jungler rival."
+        ),
+        "primary_action": (
+            "Detén la sesión ranked ahora. "
+            "Juega 1 partida normal o descansa mínimo 30 minutos "
+            "antes de volver a ranked."
+        ),
+        "secondary_actions": [
+            "Revisa qué fue diferente en tu última victoria antes de la racha: "
+            "¿roameabas con la ola pusheada o abandonabas CS para forzar jugadas?",
+            "El objetivo para hoy no es subir de elo. "
+            "El objetivo es cortar la racha con calidad, no con cantidad.",
+        ],
+        "goal_template":     "Ganar 1 partida ranked con <{target_deaths:.0f} muertes antes de terminar la sesión.",
+        "strength_not_applicable": True,
+    },
+
+    "HIGH_DEATHS_MID": {
+        "name":           "Exceso de muertes MID",
+        "display_name":   "Exceso de muertes en mid lane",
+        "probable_cause": (
+            "MID es la línea más ganqueable del mapa: ambos junglers pasan por "
+            "ella. Las causas más comunes son sobre-extenderse sin visión en "
+            "los arbustos laterales, all-ins con el jungler rival vivo, "
+            "y roams que terminan en peleas perdidas."
+        ),
+        "impact": (
+            "Cada muerte en mid cede la torre central — la estructura que abre "
+            "el mapa entero. Un MID muerto no responde a ningún objetivo y "
+            "pierde olas completas bajo torre."
+        ),
+        "primary_action": (
+            "Coloca un ward en un arbusto lateral antes del minuto 3 y respeta "
+            "la regla: si el jungler enemigo no está visible en el mapa, juega "
+            "detrás de la mitad de tu ola. La mayoría de muertes de MID en "
+            "early son ganks sin visión previa."
+        ),
+        "secondary_actions": [
+            "Después de cada muerte pregunta: '¿Sabía dónde estaba su jungler?' "
+            "Si la respuesta es no, el problema es visión y tracking, no mecánicas.",
+            "Si mueres en un roam, revisa el estado de la ola al salir: "
+            "roamear con la ola pusheando hacia ti regala CS y platos garantizados.",
+        ],
+        "goal_template":    "Reducir muertes de {current:.1f} a {target:.1f} en las próximas 10 partidas.",
+    },
+
+    "BAD_LANE_PHASE": {
+        "name":           "Mala fase de líneas",
+        "display_name":   "Deficiencia en farm y control de mid lane",
+        "probable_cause": (
+            "Perder CS por intercambios desfavorables, no farmear con habilidades "
+            "cuando el match-up lo exige, o abandonar olas para roams que no "
+            "concretan nada. Mid tiene la ola más rápida del juego: cada error "
+            "de manejo cuesta más que en otras líneas."
+        ),
+        "impact": (
+            "Un MID sin farm llega al mid game sin su power spike de items, "
+            "pierde la prioridad de línea y con ella el control de river y "
+            "los objetivos. La ventaja de CS es la base de todo lo demás."
+        ),
+        "primary_action": (
+            "En los primeros 10 minutos, la prioridad es CS y estado de la ola. "
+            "Solo roamea cuando la ola pushea hacia el rival (slow push tuyo o "
+            "crash completado). Un roam con la ola neutral o pusheando hacia ti "
+            "es CS regalado."
+        ),
+        "secondary_actions": [
+            "Practica CS en herramienta de práctica con tu campeón principal: "
+            "objetivo 65+ CS a los 10 minutos sin usar habilidades en el rival.",
+            "Estudia en qué match-ups pierdes más CS y decide de antemano: "
+            "¿es un match-up de farmear con habilidades o de intercambiar?",
+        ],
+        "goal_template":    "Alcanzar {target:.0f} CS al minuto 10 de forma consistente.",
+    },
+
+    "LOW_KILL_PARTICIPATION": {
+        "name":           "Baja presencia de mapa",
+        "display_name":   "Baja participación en jugadas del equipo",
+        "probable_cause": (
+            "El MID está farmeando mid mientras el juego pasa en otro lado. "
+            "Kill participation es el mejor proxy de roaming que ofrece la API: "
+            "un MID con prioridad de línea que no aparece en las kills del "
+            "equipo no está convirtiendo esa prioridad en presión de mapa."
+        ),
+        "impact": (
+            "MID es el rol con acceso más rápido a ambos lados del mapa. "
+            "Si no usas esa posición central, el rol pierde su mayor ventaja "
+            "estructural y tu equipo pelea 4v5 las escaramuzas de river."
+        ),
+        "primary_action": (
+            "Cada vez que completes un crash de ola (la ola muere en la torre "
+            "rival), mira el mapa antes de resetear: ¿hay pelea gestándose en "
+            "river o en una línea lateral alcanzable? Esa ventana de 20-30 "
+            "segundos es tu momento de roam gratis."
+        ),
+        "secondary_actions": [
+            "Cuando Dragon o Herald aparezcan en el mapa, gana prioridad de "
+            "línea 1 minuto antes: pushea y muévete con tu jungler.",
+            "Un roam no necesita terminar en kill para ser bueno: forzar un "
+            "Flash o quemar el TP rival también cuenta — pero si tu KP es "
+            "bajo sistemáticamente, estás llegando tarde o no estás yendo.",
+        ],
+        "goal_template":    "Subir kill participation de {current:.0%} a {target:.0%} en las próximas 10 partidas.",
+    },
+
+    "LOW_DAMAGE_IMPACT": {
+        "name":           "Bajo impacto de daño",
+        "display_name":   "Bajo impacto de daño en peleas",
+        "probable_cause": (
+            "El MID llega a las peleas pero no convierte su presencia en daño: "
+            "posicionamiento demasiado atrás, usar el combo en el tanque en vez "
+            "del carry, o llegar tarde al frente de la pelea. También puede "
+            "indicar picks que escalan peor que el resto del equipo."
+        ),
+        "impact": (
+            "MID comparte con ADC la responsabilidad de daño del equipo. "
+            "Si ninguno de los dos carrilea el daño, las peleas se pierden "
+            "por matemática simple aunque el engage sea bueno."
+        ),
+        "primary_action": (
+            "En cada teamfight identifica tu objetivo ANTES de que empiece: "
+            "¿a quién puedes matar sin morir? Entra cuando el CC rival clave "
+            "ya se haya usado, no antes."
+        ),
+        "secondary_actions": [
+            "Revisa tus últimas derrotas: ¿tu daño a campeones fue menor que "
+            "el del MID rival? Si es sistemático, el problema es de "
+            "posicionamiento en peleas, no de mecánicas de línea.",
+            "Si juegas control mages, tu daño viene de zonear: lanza las "
+            "habilidades de área donde la pelea VA a estar, no donde está.",
+        ],
+        "goal_template":    "Subir tu daño/min de {current:.0f} a {target:.0f} en las próximas 10 partidas.",
+    },
+
+    "HIGH_INCONSISTENCY_MID": {
+        "name":           "Nivel inconsistente MID",
+        "display_name":   "Alto rango de variación entre partidas",
+        "probable_cause": (
+            "Pool de campeones de MID demasiado amplio, o pool con arquetipos "
+            "mezclados (asesinos + control mages + roamers) que exigen estilos "
+            "de juego opuestos y no permiten consolidar hábitos."
+        ),
+        "impact": (
+            "MID es el rol con más variedad de arquetipos del juego. "
+            "Dominar a medias un asesino y un control mage rinde menos que "
+            "dominar profundamente uno de los dos estilos."
+        ),
+        "primary_action": (
+            "Reduce tu pool a 2 campeones del MISMO arquetipo para ranked esta "
+            "semana. La consistencia de estilo importa tanto como la de campeón."
+        ),
+        "secondary_actions": [
+            "Identifica con qué campeones tienes los peores scores — "
+            "esos son los candidatos a salir del pool ranked.",
+            "La partida que menos control tienes es la que más daño hace a tu "
+            "elo. Sube tu suelo antes de intentar subir tu techo.",
+        ],
+        "goal_template":    "Mantener overall score entre {floor:.0f} y {ceiling:.0f} en las próximas 10 partidas.",
+    },
+}
+
+
+# ---------------------------------------------------------------------------
 # Definiciones de fortalezas — ADC
 # ---------------------------------------------------------------------------
 
@@ -525,6 +756,37 @@ TOP_STRENGTHS = {
         "name":     "Buena presión lateral",
         "template": "{value:.0f} torres destruidas de media — presencia estructural consistente.",
     },
+}
+
+
+# ---------------------------------------------------------------------------
+# Definiciones de fortalezas — MID
+# ---------------------------------------------------------------------------
+
+MID_STRENGTHS = {
+    "STRONG_LANE_MID": {
+        "name":     "Fase de líneas sólida",
+        "template": "CS@10 promedio de {value:.0f} — en tu mediana personal o por encima.",
+    },
+    "GOOD_SURVIVAL_MID": {
+        "name":     "Buena supervivencia",
+        "template": "Promedio de {value:.1f} muertes por partida para el rol MID.",
+    },
+    "HIGH_DAMAGE_MID": {
+        "name":     "Alto impacto de daño",
+        "template": "{value:.0%} del daño total del equipo — estás cumpliendo el rol de carry.",
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# Mapa rol → definiciones (única fuente de verdad para engine y UI)
+# ---------------------------------------------------------------------------
+
+PROBLEMS_BY_ROLE = {
+    "ADC": ADC_PROBLEMS,
+    "TOP": TOP_PROBLEMS,
+    "MID": MID_PROBLEMS,
 }
 
 

@@ -35,7 +35,8 @@ POSITION_DISPLAY: dict[str, str] = {
 class ChampionSlot:
     cell_id:           int
     champion_id:       int
-    champion_name:     str   # resuelto desde /lol-game-data/assets/v1/champion-summary.json
+    champion_name:     str   # nombre de display (ej. "Kai'Sa") — para mostrar en UI
+    champion_alias:    str   # id formato Riot API (ej. "KaiSa") — coincide con match.champion en la DB
     assigned_position: str   # lowercase: "top" | "jungle" | "middle" | "bottom" | "utility" | ""
     spell1_id:         int
     spell2_id:         int
@@ -52,8 +53,10 @@ class ChampionSlot:
 
 @dataclass
 class BanPhase:
-    my_team_bans:    list[str]   # nombres de campeones; vacío si no se ha baneado
-    their_team_bans: list[str]
+    my_team_bans:          list[str]   # nombres de display; vacío si no se ha baneado
+    their_team_bans:       list[str]
+    my_team_bans_alias:    list[str]   # id formato Riot API — para cruzar con match.champion
+    their_team_bans_alias: list[str]
 
 
 @dataclass
@@ -94,6 +97,12 @@ class ChampSelectSession:
     def my_champion(self) -> str:
         slot = self.me
         return slot.champion_name if (slot and slot.has_pick) else ""
+
+    @property
+    def my_champion_alias(self) -> str:
+        """Id formato Riot API del pick actual — usar para cruzar con la DB."""
+        slot = self.me
+        return slot.champion_alias if (slot and slot.has_pick) else ""
 
     @property
     def my_role(self) -> str:

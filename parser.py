@@ -3,7 +3,7 @@ parser.py — Convierte el JSON crudo de Riot API en un MatchData limpio.
 
 Responsabilidades:
 - Extraer solo los campos que necesita la app.
-- Detectar el rol del jugador (ADC / TOP / OTHER).
+- Detectar el rol del jugador (ADC / TOP / MID / OTHER).
 - Calcular el timestamp legible de la partida.
 - Extraer campos V2: visión, objetivos, challenges, flags de partida.
 """
@@ -23,7 +23,7 @@ class MatchData:
     match_id:     str
     puuid:        str
     champion:     str
-    role:         str          # 'ADC' | 'TOP' | 'OTHER'
+    role:         str          # 'ADC' | 'TOP' | 'MID' | 'OTHER'
     result:       str          # 'WIN' | 'LOSS'
     kills:        int
     deaths:       int
@@ -145,7 +145,8 @@ class MatchData:
 _POSITION_TO_ROLE: dict[str, str] = {
     "BOTTOM": "ADC",
     "TOP":    "TOP",
-    # JUNGLE, MIDDLE, UTILITY → "OTHER" (se filtran en la app)
+    "MIDDLE": "MID",
+    # JUNGLE, UTILITY → "OTHER" (se filtran en la app)
 }
 
 

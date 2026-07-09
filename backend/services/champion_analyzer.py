@@ -170,7 +170,7 @@ def analyze_champion_pool(
 
     Args:
         matches:       partidas filtradas por rol (db.get_matches)
-        role:          "ADC" | "TOP"
+        role:          "ADC" | "TOP" | "MID"
         match_scores:  lista de MatchScore de scorer_v2.analyze_player().
                        Si None, se calcula internamente.
 

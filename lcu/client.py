@@ -129,9 +129,10 @@ def _get(creds: LCUCredentials, endpoint: str) -> dict | list | str | None:
             except ValueError:
                 return resp.text.strip('"')
         return None
-    except requests.exceptions.ConnectionError:
-        return None
-    except requests.exceptions.Timeout:
+    except requests.exceptions.RequestException:
+        # Cubre ConnectionError, Timeout, SSLError (handshake del certificado
+        # autofirmado del cliente) y cualquier otro fallo de la capa HTTP —
+        # todos deben degradar a "cliente no disponible", nunca reventar la UI.
         return None
 
 
@@ -166,21 +167,29 @@ def get_champ_select_session(creds: LCUCredentials) -> dict | None:
     return result if isinstance(result, dict) else None
 
 
-def get_champion_map(creds: LCUCredentials) -> dict[int, str]:
+def get_champion_map(creds: LCUCredentials) -> dict[int, dict[str, str]]:
     """
-    Devuelve {champion_id: champion_name} para todos los campeones.
+    Devuelve {champion_id: {"name": ..., "alias": ...}} para todos los campeones.
     Fuente: /lol-game-data/assets/v1/champion-summary.json (propio cliente).
+
+    "name" es el nombre de display (ej. "Kai'Sa", "Wukong") — para mostrar en UI.
+    "alias" es el id formato Riot API (ej. "KaiSa", "MonkeyKing") — coincide con
+    el campo championName que devuelve Match-V5 y que se guarda en match.champion.
+    Antes solo se exponía "name", lo que rompía cualquier cruce contra la DB para
+    los ~20 campeones cuyo nombre de display difiere de su id (apóstrofes, etc.).
+
     Si el endpoint falla, devuelve dict vacío y la UI muestra el ID numérico.
     """
     result = _get(creds, "/lol-game-data/assets/v1/champion-summary.json")
     if not isinstance(result, list):
         return {}
-    champ_map: dict[int, str] = {}
+    champ_map: dict[int, dict[str, str]] = {}
     for entry in result:
-        cid  = entry.get("id", -1)
-        name = entry.get("name", "")
+        cid   = entry.get("id", -1)
+        name  = entry.get("name", "")
+        alias = entry.get("alias", "") or name
         if cid >= 0 and name:
-            champ_map[cid] = name
+            champ_map[cid] = {"name": name, "alias": alias}
     return champ_map
 
 
