@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import analytics
 import db
 import scorer_v2
+import telemetry
 from riot_api import RiotClient, RiotAPIError
 from parser import parse_match
 
@@ -293,6 +294,13 @@ def _download_matches(
         )
 
     progress.empty()
+
+    # Telemetría opt-in: encola resúmenes anónimos de las partidas nuevas y
+    # los envía en segundo plano. No-op sin consentimiento; nunca bloquea.
+    if saved > 0 and telemetry.is_enabled():
+        telemetry.enqueue_match_summaries(puuid)
+        telemetry.flush_async()
+
     st.success(
         f"✅ {saved} partidas nuevas guardadas · "
         f"{skipped} omitidas (rol no soportado o ya existentes)."

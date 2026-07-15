@@ -10,6 +10,7 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import db
+import telemetry
 from riot_api import RiotClient, RiotAPIError, RiotNotFoundError
 
 
@@ -172,6 +173,31 @@ def render() -> None:
 
     with st.expander("🔧 Cambiar cuenta o región"):
         _render_form(compact=True)
+
+    with st.expander("📡 Estadísticas anónimas"):
+        st.caption(
+            "Si lo activas, LoL Coach envía resúmenes **anónimos** de tus partidas "
+            "(rol, campeón, tier, resultado, duración, scores) para mejorar la base "
+            "de conocimiento global. **Nunca** se envía tu Riot ID, tu API Key, tu "
+            "correo, archivos ni nada que te identifique."
+        )
+        enabled = st.toggle(
+            "Compartir estadísticas anónimas",
+            value=telemetry.is_enabled(),
+            key="telemetry_toggle",
+        )
+        if enabled != telemetry.is_enabled():
+            telemetry.set_consent(enabled)
+            if enabled:
+                telemetry.flush_async()
+            st.rerun()
+
+        stats = db.telemetry_queue_stats()
+        if stats:
+            st.caption(
+                f"Cola local: {stats.get('pending', 0)} pendiente(s) · "
+                f"{stats.get('sent', 0)} enviado(s)."
+            )
 
 
 # ---------------------------------------------------------------------------

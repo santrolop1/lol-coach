@@ -177,8 +177,44 @@ lol-coach/
 - La integración con LCU (Draft en tiempo real) usa la API interna del cliente de League, la cual **no es oficial y puede cambiar sin aviso**. Solo se realizan lecturas (GET), sin modificar el cliente.
 - Tu API Key de Riot se almacena localmente en `data/lol_coach.db` — no compartas este archivo.
 - El análisis soporta actualmente **ADC, TOP y MID**. JGL y SUP se implementarán en una versión futura.
-- Todos los datos se procesan localmente. Nada se envía a terceros.
+- Todos los datos se procesan localmente. Nada se envía a terceros sin tu consentimiento explícito.
 - Desde la beta cerrada, la app registra uso básico (pantallas abiertas, recomendaciones mostradas, errores) y feedback opcional en las tablas `event_log` y `feedback` de la misma base SQLite local. No incluye Riot ID, puuid ni API Key — solo se usa para decidir qué mejorar.
+
+---
+
+## 📡 Estadísticas anónimas (opt-in)
+
+La primera vez que abras la app te preguntará si quieres compartir estadísticas
+anónimas para mejorar la base de conocimiento global. Puedes cambiar tu decisión
+cuando quieras en **⚙️ Configuración → Estadísticas anónimas**.
+
+**Qué se envía** (solo si aceptas): rol, campeón, tier (sin división ni LP),
+parche, resultado, duración, scores y dimensiones V2, problemas y fortalezas
+detectados, y estadísticas agregadas (muertes, CS/min, oro/min, KP…).
+
+**Qué no se envía nunca**: tu Riot ID, tu puuid, tu API Key, tu correo, el
+nombre de tu PC, archivos ni chats. El identificador es un UUID aleatorio local
+y el ID de partida viaja como hash irreversible — el servidor no puede cruzar
+nada con la API de Riot.
+
+Los envíos van en segundo plano (nunca bloquean la interfaz) con una cola local
+que reintenta automáticamente si no hay internet.
+
+### Backend de conocimiento (`server/`)
+
+API REST independiente del cliente (FastAPI + SQLAlchemy):
+
+```bash
+pip install -r server/requirements.txt
+uvicorn server.app:app --port 8787                 # desarrollo (SQLite)
+DATABASE_URL=postgresql+psycopg://... uvicorn server.app:app   # producción
+
+python -m server.knowledge                          # publicar snapshot de conocimiento
+```
+
+Endpoints: `POST /telemetry/{match,session,champion}` (ingesta validada e
+idempotente) · `GET /knowledge/{version,update}` (umbrales y estadísticas
+globales versionadas — nada se publica con menos de 50 muestras).
 
 ---
 

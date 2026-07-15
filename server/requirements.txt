@@ -1,0 +1,7 @@
+# Dependencias del backend de conocimiento (NO instalar en el cliente).
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+sqlalchemy>=2.0.0
+pydantic>=2.6.0
+# Producción con PostgreSQL:
+# psycopg[binary]>=3.1

@@ -19,6 +19,7 @@ import db
 import scorer_v2
 import coaching_engine
 import coaching_rules
+import telemetry
 from backend.services.champion_analyzer import analyze_champion_pool
 
 
@@ -986,6 +987,13 @@ def render() -> None:
         # Sección 6: Champion Intelligence
         cpa = analyze_champion_pool(role_matches, role, sr.match_scores)
         _render_champion_intelligence(cpa)
+
+    # Telemetría opt-in: diagnóstico y pool anónimos (dedup: 1/rol/día en la
+    # propia cola, así los reruns de Streamlit no duplican nada).
+    if telemetry.is_enabled():
+        telemetry.enqueue_coaching_summary(role, cr, sr)
+        telemetry.enqueue_champion_summaries(role, cpa)
+        telemetry.flush_async()
 
     with col_right:
         # Objetivo semanal

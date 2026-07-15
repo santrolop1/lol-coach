@@ -15,6 +15,7 @@ import streamlit as st
 
 import analytics
 import db
+import telemetry
 import ui.config   as page_config
 import ui.matches  as page_matches
 import ui.coaching as page_coaching
@@ -657,6 +658,36 @@ def is_setup_complete() -> bool:
 # Main
 # ---------------------------------------------------------------------------
 
+def _render_telemetry_consent() -> None:
+    """
+    Pregunta de consentimiento (una sola vez, en la primera apertura).
+    La preferencia se guarda en config y puede cambiarse después desde
+    ⚙️ Configuración → Estadísticas anónimas.
+    """
+    st.markdown(
+        '<div class="card" style="max-width:640px;margin:3rem auto;padding:1.6rem 2rem">'
+        '<div class="card-label">📡 &nbsp;AYUDA A MEJORAR LOL COACH</div>'
+        '<p style="font-size:0.95rem;color:#D1D5DB;margin:0.8rem 0 0.4rem">'
+        '¿Deseas compartir estadísticas anónimas para ayudar a mejorar LoL Coach?</p>'
+        '<p style="font-size:0.78rem;color:#6B7280;margin-bottom:0.2rem">'
+        'Se envían solo métricas agregadas: rol, campeón, tier, resultado, duración '
+        'y scores. <b>Nunca</b> se envía tu Riot ID, tu API Key, tu correo ni ningún '
+        'archivo de tu equipo. Puedes cambiar esta decisión cuando quieras en '
+        '⚙️ Configuración.</p>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    col_sp1, col_yes, col_no, col_sp2 = st.columns([1.2, 1, 1, 1.2])
+    with col_yes:
+        if st.button("✅ Sí, compartir", key="telemetry_yes", use_container_width=True, type="primary"):
+            telemetry.set_consent(True)
+            st.rerun()
+    with col_no:
+        if st.button("No, gracias", key="telemetry_no", use_container_width=True):
+            telemetry.set_consent(False)
+            st.rerun()
+
+
 def main() -> None:
     st.set_page_config(
         page_title="LoL Coach",
@@ -672,6 +703,17 @@ def main() -> None:
     except Exception as e:
         st.error(f"No se pudo inicializar la base de datos: {e}")
         st.stop()
+
+    # Consentimiento de telemetría: solo la primera vez que se abre la app.
+    if telemetry.consent_status() is None:
+        _render_telemetry_consent()
+        st.stop()
+
+    # Reintenta el envío de resúmenes pendientes de sesiones anteriores
+    # (no-op sin consentimiento o sin servidor configurado; nunca bloquea).
+    if not st.session_state.get("_telemetry_flushed"):
+        st.session_state["_telemetry_flushed"] = True
+        telemetry.flush_async()
 
     setup_ok = is_setup_complete()
 

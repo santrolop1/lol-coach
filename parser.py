@@ -75,6 +75,9 @@ class MatchData:
     game_ended_surrender:  Optional[int]  = None  # gameEndedInEarlySurrender → 0/1
     first_blood:           Optional[int]  = None  # firstBloodKill → 0/1
 
+    # ── Campos V2: Contexto ──────────────────────────────────────────────────
+    game_version:          Optional[str]  = None  # info.gameVersion → "15.13"
+
     def to_dict(self) -> dict:
         """Convierte a dict plano para guardar en SQLite."""
         return {
@@ -125,6 +128,8 @@ class MatchData:
             # V2 — Flags
             "game_ended_surrender":   self.game_ended_surrender,
             "first_blood":            self.first_blood,
+            # V2 — Contexto
+            "game_version":           self.game_version,
         }
 
     def to_v2_fields(self) -> dict:
@@ -251,6 +256,9 @@ def parse_match(match_json: dict, puuid: str) -> Optional["MatchData"]:
         # ── V2: Flags ────────────────────────────────────────────────────────
         game_ended_surrender=_bool_to_int(participant.get("gameEndedInEarlySurrender")),
         first_blood=_bool_to_int(participant.get("firstBloodKill")),
+
+        # ── V2: Contexto ─────────────────────────────────────────────────────
+        game_version=_short_patch(info.get("gameVersion")),
     )
 
 
@@ -273,3 +281,13 @@ def _safe_int(value) -> Optional[int]:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _short_patch(game_version) -> Optional[str]:
+    """'15.13.680.1234' → '15.13'. None si el campo no existe o es inválido."""
+    if not game_version or not isinstance(game_version, str):
+        return None
+    parts = game_version.split(".")
+    if len(parts) < 2:
+        return None
+    return f"{parts[0]}.{parts[1]}"

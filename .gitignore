@@ -71,3 +71,6 @@ logs/
 *.bak
 *.swp
 *.swo
+
+# Backend de conocimiento (datos locales de desarrollo)
+server/data/

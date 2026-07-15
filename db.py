@@ -87,6 +87,8 @@ _V2_COLUMNS: list[tuple[str, str]] = [
     # Flags
     ("game_ended_surrender",  "INTEGER"),  # gameEndedInEarlySurrender (BOOL → 0/1)
     ("first_blood",           "INTEGER"),  # firstBloodKill (BOOL → 0/1)
+    # Contexto de partida (Sprint telemetría)
+    ("game_version",          "TEXT"),     # info.gameVersion truncado a "major.minor"
 ]
 
 
@@ -174,6 +176,25 @@ CREATE INDEX IF NOT EXISTS idx_event_log_session_created
 ON event_log (session_id, created_at);
 """
 
+CREATE_TELEMETRY_QUEUE = """
+CREATE TABLE IF NOT EXISTS telemetry_queue (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind            TEXT NOT NULL,              -- 'match' | 'session' | 'champion'
+    dedup_key       TEXT NOT NULL UNIQUE,       -- evita reenviar el mismo resumen
+    payload         TEXT NOT NULL,              -- JSON del resumen anónimo
+    status          TEXT NOT NULL DEFAULT 'pending',  -- 'pending' | 'sent'
+    attempts        INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TEXT NOT NULL,              -- ISO UTC; backoff exponencial
+    created_at      TEXT NOT NULL,
+    sent_at         TEXT
+);
+"""
+
+CREATE_TELEMETRY_QUEUE_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_telemetry_status_next
+ON telemetry_queue (status, next_attempt_at);
+"""
+
 CREATE_FEEDBACK = """
 CREATE TABLE IF NOT EXISTS feedback (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -197,6 +218,8 @@ def init_db() -> None:
         conn.execute(CREATE_EVENT_LOG)
         conn.execute(CREATE_EVENT_LOG_INDEX)
         conn.execute(CREATE_FEEDBACK)
+        conn.execute(CREATE_TELEMETRY_QUEUE)
+        conn.execute(CREATE_TELEMETRY_QUEUE_INDEX)
         conn.commit()
 
 
@@ -423,6 +446,114 @@ def get_feedback(limit: int = 200) -> list[dict]:
             "SELECT * FROM feedback ORDER BY created_at DESC LIMIT ?", (limit,)
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Cola de telemetría (Sprint telemetría — envío opt-in de resúmenes anónimos)
+# ---------------------------------------------------------------------------
+# La cola vive en SQLite para sobrevivir reinicios de la app: si no hay
+# internet, los resúmenes quedan 'pending' y se reintentan en la próxima
+# sesión. dedup_key UNIQUE garantiza que un mismo resumen nunca se
+# encola (ni envía) dos veces.
+
+# Máximo de filas pendientes — evita crecimiento sin límite si el servidor
+# está caído durante semanas. Al superarlo se descartan las más antiguas.
+_TELEMETRY_QUEUE_CAP = 500
+
+
+def telemetry_enqueue(kind: str, dedup_key: str, payload: dict) -> bool:
+    """
+    Encola un resumen anónimo. Devuelve True si se insertó,
+    False si ya existía (dedup) o la cola está llena.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    with _get_conn() as conn:
+        pending = conn.execute(
+            "SELECT COUNT(*) FROM telemetry_queue WHERE status = 'pending'"
+        ).fetchone()[0]
+        if pending >= _TELEMETRY_QUEUE_CAP:
+            # Descarta el más antiguo para dejar espacio (política FIFO).
+            conn.execute(
+                "DELETE FROM telemetry_queue WHERE id = ("
+                "  SELECT id FROM telemetry_queue WHERE status = 'pending'"
+                "  ORDER BY created_at ASC LIMIT 1)"
+            )
+        cur = conn.execute(
+            """
+            INSERT OR IGNORE INTO telemetry_queue
+                (kind, dedup_key, payload, status, attempts, next_attempt_at, created_at)
+            VALUES (?, ?, ?, 'pending', 0, ?, ?)
+            """,
+            (kind, dedup_key, json.dumps(payload, ensure_ascii=False), now, now),
+        )
+        conn.commit()
+    return cur.rowcount > 0
+
+
+def telemetry_pending(limit: int = 100) -> list[dict]:
+    """Elementos pendientes cuyo next_attempt_at ya venció, más antiguos primero."""
+    now = datetime.now(timezone.utc).isoformat()
+    with _get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, kind, dedup_key, payload, attempts FROM telemetry_queue
+            WHERE status = 'pending' AND next_attempt_at <= ?
+            ORDER BY created_at ASC LIMIT ?
+            """,
+            (now, limit),
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["payload"] = json.loads(d["payload"])
+        out.append(d)
+    return out
+
+
+def telemetry_mark_sent(ids: list[int]) -> None:
+    if not ids:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    with _get_conn() as conn:
+        conn.executemany(
+            "UPDATE telemetry_queue SET status = 'sent', sent_at = ? WHERE id = ?",
+            [(now, i) for i in ids],
+        )
+        conn.commit()
+
+
+def telemetry_mark_failed(ids: list[int]) -> None:
+    """
+    Marca intento fallido y programa el reintento con backoff exponencial:
+    60s · 2^attempts, con techo de 1 hora.
+    """
+    if not ids:
+        return
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    with _get_conn() as conn:
+        for i in ids:
+            row = conn.execute(
+                "SELECT attempts FROM telemetry_queue WHERE id = ?", (i,)
+            ).fetchone()
+            if row is None:
+                continue
+            attempts = row[0] + 1
+            delay = min(3600, 60 * (2 ** attempts))
+            conn.execute(
+                "UPDATE telemetry_queue SET attempts = ?, next_attempt_at = ? WHERE id = ?",
+                (attempts, (now + timedelta(seconds=delay)).isoformat(), i),
+            )
+        conn.commit()
+
+
+def telemetry_queue_stats() -> dict:
+    """Conteo por estado, para mostrar en Configuración."""
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT status, COUNT(*) AS n FROM telemetry_queue GROUP BY status"
+        ).fetchall()
+    return {r["status"]: r["n"] for r in rows}
 
 
 # ---------------------------------------------------------------------------
