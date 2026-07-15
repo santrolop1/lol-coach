@@ -13,11 +13,13 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
+import _paths
+
 # ---------------------------------------------------------------------------
 # Configuración
 # ---------------------------------------------------------------------------
 
-DB_DIR = Path(__file__).parent / "data"
+DB_DIR  = _paths.get_data_dir()
 DB_PATH = DB_DIR / "lol_coach.db"
 
 

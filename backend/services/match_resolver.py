@@ -46,7 +46,7 @@ def resolve_matches(
 
     # Último recurso: PUUID con más partidas del rol en DB
     try:
-        conn = sqlite3.connect("data/lol_coach.db")
+        conn = sqlite3.connect(str(db.DB_PATH))
         if role:
             row = conn.execute(
                 "SELECT puuid, COUNT(*) cnt FROM match WHERE role = ? "

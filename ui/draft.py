@@ -51,7 +51,7 @@ _SUPPORTED_ROLES: set[str] = {"ADC", "TOP"}
 def _cpa_cache_version(role: str) -> str:
     """Versión del cache: cambia cuando se descargan partidas nuevas del rol."""
     try:
-        conn = sqlite3.connect("data/lol_coach.db")
+        conn = sqlite3.connect(str(db.DB_PATH))
         row  = conn.execute(
             "SELECT COUNT(*), MAX(match_id) FROM match WHERE role = ?", (role,)
         ).fetchone()

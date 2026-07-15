@@ -8,8 +8,11 @@ Uso:
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).parent
-sys.path.insert(0, str(ROOT))
+# En PyInstaller, sys._MEIPASS ya está en sys.path via runtime_hook.py.
+# En desarrollo, añadimos la raíz del proyecto manualmente.
+_ROOT = Path(__file__).parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
 import streamlit as st
 
@@ -19,6 +22,7 @@ import ui.matches     as page_matches
 import ui.coaching    as page_coaching
 import ui.draft       as page_draft
 import ui.onboarding  as page_onboarding
+import ui.about       as page_about
 from backend.services.setup_service import is_setup_complete
 from backend.services import sync_service
 
@@ -1268,7 +1272,7 @@ def main() -> None:
 
         page = st.radio(
             "nav",
-            options=["🧠 Coaching", "🎮 Partidas", "🎯 Draft", "⚙️ Configuración"],
+            options=["🧠 Coaching", "🎮 Partidas", "🎯 Draft", "⚙️ Configuración", "ℹ️ Acerca de"],
             label_visibility="collapsed",
             key="current_page",
         )
@@ -1307,6 +1311,8 @@ def main() -> None:
         page_draft.render()
     elif page == "⚙️ Configuración":
         page_config.render()
+    elif page == "ℹ️ Acerca de":
+        page_about.render()
 
 
 if __name__ == "__main__":

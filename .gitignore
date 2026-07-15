@@ -1,3 +1,6 @@
+# ─── Artefactos de build (PyInstaller) ───────────────────────────────────────
+file_version_info.txt
+
 # ─── Base de datos ────────────────────────────────────────────────────────────
 # Contiene API Keys, PUUIDs y datos personales del usuario
 data/lol_coach.db

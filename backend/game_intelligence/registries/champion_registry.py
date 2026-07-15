@@ -14,13 +14,14 @@ import logging
 from pathlib import Path
 from typing import Any
 
+import _paths
 from .base import BaseRegistry
 from ..models.champion import ChampionProfile
 from ..models.matchup import MatchupProfile
 
 logger = logging.getLogger(__name__)
 
-_KNOWLEDGE_ROOT = Path(__file__).parent.parent / "knowledge" / "champions"
+_KNOWLEDGE_ROOT = _paths.get_knowledge_dir() / "champions"
 
 
 class ChampionRegistry(BaseRegistry):

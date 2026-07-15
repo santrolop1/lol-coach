@@ -15,8 +15,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-# Directorio donde riot_api cachea los JSONs (mismo que en riot_api.py)
-_RAW_DIR = Path(__file__).parent.parent.parent / "data" / "raw"
+import _paths
+
+# Directorio donde riot_api cachea los JSONs — sincronizado con riot_api.py
+_RAW_DIR = _paths.get_cache_dir()
 
 _ROLE_TO_POSITION: dict[str, str] = {
     "ADC": "BOTTOM",

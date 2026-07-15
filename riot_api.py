@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 import requests
+import _paths
 
 # ---------------------------------------------------------------------------
 # Configuración de routing
@@ -38,7 +39,7 @@ PLATFORM_TO_REGIONAL: dict[str, str] = {
     "vn2":  "sea",
 }
 
-CACHE_DIR = Path(__file__).parent / "data" / "raw"
+CACHE_DIR = _paths.get_cache_dir()
 
 
 # ---------------------------------------------------------------------------

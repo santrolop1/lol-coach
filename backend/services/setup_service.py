@@ -38,7 +38,7 @@ def is_setup_complete() -> bool:
 def count_matches(role: str | None = None) -> int:
     """Total de partidas guardadas en DB, opcionalmente filtradas por rol."""
     try:
-        conn = sqlite3.connect("data/lol_coach.db")
+        conn = sqlite3.connect(str(db.DB_PATH))
         if role:
             n = conn.execute(
                 "SELECT COUNT(*) FROM match WHERE role = ?", (role,)
@@ -54,7 +54,7 @@ def count_matches(role: str | None = None) -> int:
 def last_sync_date() -> str | None:
     """Fecha de la partida más reciente en DB (formato YYYY-MM-DD) o None."""
     try:
-        conn = sqlite3.connect("data/lol_coach.db")
+        conn = sqlite3.connect(str(db.DB_PATH))
         row  = conn.execute(
             "SELECT played_at FROM match ORDER BY played_at DESC LIMIT 1"
         ).fetchone()
@@ -172,32 +172,46 @@ def detect_account_from_lcu() -> dict:
     if lcu_puuid == configured_puuid:
         return {"status": "already_synced", "message": "La cuenta ya está sincronizada."}
 
-    # Cuenta cambió — resolver perfil completo vía Riot API
+    # Identidad mínima desde LCU — no requiere Riot API
+    minimal_profile: dict = {
+        "puuid":   lcu_puuid,
+        "riot_id": lcu_game,
+        "tag":     lcu_tag.lstrip("#"),
+        "level":   0,
+        "rank":    "Sin rango",
+        "tier":    "",
+        "lp":      0,
+        "wins":    0,
+        "losses":  0,
+    }
+
+    # Enriquecimiento opcional — falla silenciosamente si la key expiró
     try:
-        profile = resolve_riot_account(
+        enriched = resolve_riot_account(
             api_key=api_key,
             platform=platform,
             game_name=lcu_game,
             tag_line=lcu_tag,
         )
-    except (RiotNotFoundError, RiotAPIError, Exception) as e:
-        return {"status": "error", "message": f"No se pudo resolver la cuenta: {e}"}
+        minimal_profile.update(enriched)
+    except (RiotNotFoundError, RiotAPIError, Exception):
+        pass
 
     save_account(
         api_key=api_key,
         platform=platform,
         game_name=lcu_game,
         tag_line=lcu_tag,
-        profile=profile,
+        profile=minimal_profile,
     )
 
     return {
         "status":  "updated",
-        "message": f"Cuenta actualizada a {profile['riot_id']}#{profile['tag']}",
-        "riot_id": profile["riot_id"],
-        "tag":     profile["tag"],
-        "level":   profile["level"],
-        "rank":    profile["rank"],
+        "message": f"Cuenta actualizada a {minimal_profile['riot_id']}#{minimal_profile['tag']}",
+        "riot_id": minimal_profile["riot_id"],
+        "tag":     minimal_profile["tag"],
+        "level":   minimal_profile["level"],
+        "rank":    minimal_profile["rank"],
     }
 
 
