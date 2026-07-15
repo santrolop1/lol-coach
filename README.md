@@ -30,6 +30,7 @@ and your own performance distribution as the baseline.
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Running the App](#running-the-app)
+- [Build & Distribution](#build--distribution)
 - [Project Structure](#project-structure)
 - [Engines](#engines)
 - [API Reference](#api-reference)
@@ -46,6 +47,7 @@ and your own performance distribution as the baseline.
 |---|---|---|
 | FastAPI backend | Stable | 15 endpoints, versioned at `/api/v1` |
 | React + Electron frontend | Stable | 8 feature pages, production-ready |
+| Streamlit UI (legacy) | Stable | Full feature parity, single-process |
 | Scorer V2 | Stable | ADC and TOP roles fully implemented |
 | Priority Engine | Stable | Win/loss delta ranking |
 | Knowledge Engine | Stable | Memory, patterns, insights, recommendations |
@@ -53,10 +55,15 @@ and your own performance distribution as the baseline.
 | Draft Engine | Stable | LCU integration + WebSocket stream |
 | Match Review | Stable | Per-game breakdown with dimension scores |
 | Progress Tracking | Stable | Weekly goals, habits, trend analysis |
+| Game Intelligence Platform | Stable | Champion profiles, matchup knowledge base |
+| Beta Distribution (Windows) | Stable | PyInstaller + Inno Setup, no Python required |
 | MID / JUNGLE / SUPPORT roles | Planned | Scorer architecture already supports them |
 | Auto-start backend from Electron | Planned | Currently requires a separate terminal |
+| Auto-updater | Designed | GitHub Releases strategy documented, not yet implemented |
 
 Test suite: **385 tests passing** across 8 files.
+
+Current version: **1.0.0-beta.1** (see `backend/version.py`)
 
 ---
 
@@ -73,6 +80,8 @@ Test suite: **385 tests passing** across 8 files.
 | **Training Engine** | Skill tree with exercises that auto-complete from post-game data |
 | **Draft Intelligence** | Contextual draft analysis with live WebSocket updates |
 | **Progress Tracking** | Weekly goal, performance habits, and multi-week trend data |
+| **Game Intelligence** | Deep champion and matchup knowledge base (Tryndamere + 5 matchups) |
+| **About / Diagnostics** | Version info, exportable JSON diagnostic, log download, bug report links |
 | **Settings + Sync** | API key management, region selection, and incremental match sync |
 
 Roles currently scored: **ADC**, **TOP**.
@@ -110,12 +119,15 @@ Roles currently scored: **ADC**, **TOP**.
 ║   │  scorer_v2 · coaching_engine       │  ║
 ║   │  priority_engine · knowledge/      │  ║
 ║   │  training/ · draft/                │  ║
+║   │  game_intelligence/                │  ║
 ║   └───────────────┬───────────────────┘  ║
 ╚═══════════════════╪══════════════════════╝
                     │
 ╔═══════════════════╪══════════════════════╗
 ║           SQLite  │  db.py                ║
 ║   config · player · match · analysis      ║
+║   Data: %APPDATA%\LoLCoach\ (packaged)    ║
+║         data/ (development)               ║
 ╚═══════════════════╪══════════════════════╝
                     │
          ┌──────────┴──────────┐
@@ -131,6 +143,7 @@ Roles currently scored: **ADC**, **TOP**.
 - ViewModels orchestrate engines and read from `db.py`. No HTTP logic.
 - Engines are stateless functions. State lives in `db.py` or the training JSON blob.
 - The React frontend owns zero business logic. Everything comes from the API.
+- All file paths go through `_paths.py` — no `Path(__file__)` outside of that module.
 
 ---
 
@@ -216,13 +229,15 @@ Roles currently scored: **ADC**, **TOP**.
 
 | Package | Version | Role |
 |---|---|---|
-| Python | 3.10+ | Runtime |
+| Python | 3.11+ | Runtime |
 | FastAPI | ≥ 0.110 | REST API + WebSocket server |
 | uvicorn | ≥ 0.29 | ASGI server |
 | Pydantic v2 | ≥ 2.6 | Schema validation |
 | websockets | ≥ 12.0 | Draft real-time stream |
 | requests | ≥ 2.32 | Riot API HTTP client |
 | python-dotenv | ≥ 1.0 | Environment configuration |
+| Streamlit | ≥ 1.35 | Legacy desktop UI (standalone, no backend needed) |
+| Plotly | ≥ 5.20 | Charts in Streamlit UI |
 
 ### Frontend
 
@@ -245,10 +260,18 @@ Roles currently scored: **ADC**, **TOP**.
 
 | Technology | Detail |
 |---|---|
-| SQLite | Single file: `data/lol_coach.db` |
+| SQLite | Packaged: `%APPDATA%\LoLCoach\lol_coach.db` · Dev: `data/lol_coach.db` |
 | Tables | `config`, `player`, `match` (38 columns), `analysis` |
 | Migrations | Additive column additions via `PRAGMA table_info`, no data loss |
 | JSON blobs | Training state and knowledge memory stored as JSON in `config` table |
+| API cache | Packaged: `%LOCALAPPDATA%\LoLCoach\cache\` · Dev: `data/raw/` |
+
+### Distribution (Windows Beta)
+
+| Tool | Version | Role |
+|---|---|---|
+| PyInstaller | ≥ 6.21 | Bundles Python app + deps into a standalone .exe |
+| Inno Setup | 6 | Creates `LoLCoachSetup.exe` with shortcuts and uninstaller |
 
 ### Testing
 
@@ -268,30 +291,49 @@ Roles currently scored: **ADC**, **TOP**.
 
 ## Prerequisites
 
-- **Python 3.10+** — [python.org](https://www.python.org/downloads/)
+### Para usar el instalador (beta testers)
+
+- **Windows 10 64-bit** o superior
+- **League of Legends** instalado (para Draft en tiempo real)
+- **Riot Games API key** — [developer.riotgames.com](https://developer.riotgames.com/)
+  - Las keys personales (gratuitas) expiran cada 24 horas.
+
+No se requiere Python, Node.js, ni ningún otro runtime.
+
+### Para desarrollo
+
+- **Python 3.11+** — [python.org](https://www.python.org/downloads/)
 - **Node.js 18+** — [nodejs.org](https://nodejs.org/)
 - **Riot Games API key** — [developer.riotgames.com](https://developer.riotgames.com/)
-  - Personal keys (free) expire every 24 hours.
-  - Production keys (require application approval) do not expire.
 
 ---
 
 ## Installation
 
-### 1. Clone
+### Opción A — Instalador (beta, sin Python)
+
+1. Descargar `LoLCoachSetup-1.0.0-beta.1.exe` desde [Releases](https://github.com/santrolop1/lol-coach/releases)
+2. Ejecutar el instalador → siguiente → instalar
+3. Doble clic en el acceso directo **LoL Coach** del Escritorio
+4. En la pantalla de configuración, ingresar API key, Riot ID y región
+5. Clic en **Sincronizar** para descargar el historial de partidas
+
+### Opción B — Desde el código fuente (desarrolladores)
+
+#### 1. Clonar
 
 ```bash
-git clone https://github.com/your-username/lol-coach.git
+git clone https://github.com/santrolop1/lol-coach.git
 cd lol-coach
 ```
 
-### 2. Python dependencies
+#### 2. Dependencias Python
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Frontend dependencies
+#### 3. Dependencias del frontend
 
 ```bash
 cd frontend
@@ -299,21 +341,31 @@ npm install
 cd ..
 ```
 
-### 4. Environment
+#### 4. Variable de entorno del frontend
 
-Create `frontend/.env`:
+Crear `frontend/.env`:
 
 ```env
 VITE_API_PORT=8766
 ```
 
-The port must match the one passed to uvicorn. Change both if `8766` is in use on your machine.
-
 ---
 
 ## Running the App
 
-The backend and frontend are separate processes. Start them in two terminals.
+### Streamlit UI (más simple — recomendado para testing)
+
+```bash
+streamlit run main.py
+```
+
+Abre automáticamente en `http://localhost:8501`. No requiere el backend FastAPI.
+
+---
+
+### FastAPI backend + Electron frontend
+
+Requiere dos terminales:
 
 **Terminal 1 — backend**
 
@@ -321,48 +373,84 @@ The backend and frontend are separate processes. Start them in two terminals.
 uvicorn backend.api.main:app --host 127.0.0.1 --port 8766
 ```
 
-Interactive API docs: `http://127.0.0.1:8766/docs`
+Docs interactivos: `http://127.0.0.1:8766/docs`
 
-**Terminal 2 — frontend (development)**
+**Terminal 2 — frontend**
 
 ```bash
 cd frontend
 npm run dev
 ```
 
-This opens the Electron window with hot reload enabled.
+---
+
+### Primera configuración
+
+Ir a **Configuración**, ingresar:
+- Riot Games API key (desde [developer.riotgames.com](https://developer.riotgames.com/))
+- Riot ID en formato `GameName#TAG`
+- Región del servidor
+
+Luego clic en **Sincronizar** para descargar el historial.
+
+Regiones soportadas: `LA1` · `LA2` · `NA1` · `EUW1` · `EUN1` · `BR1` · `KR` · `JP1` · `OC1`
 
 ---
 
-### First launch
+## Build & Distribution
 
-Open **Settings**, enter your Riot Games API key, Riot ID (`GameName#TAG`),
-and region. Then click **Sync** to download your match history.
+### Generar el ejecutable (Windows)
 
-Supported regions: LA1 · LA2 · NA1 · EUW1 · EUN1 · BR1 · KR · JP1 · OC1
+Requiere Python + dependencias instaladas:
 
----
-
-### Build a distributable
-
-```bash
-cd frontend
-npm run package
+```powershell
+.\build.ps1
 ```
 
-Output in `frontend/dist/`:
-- **Windows** — NSIS installer (`.exe`)
-- **macOS** — DMG image (`.dmg`)
+El script:
+1. Limpia `dist/` y `build/` anteriores
+2. Instala PyInstaller si no está instalado
+3. Genera `file_version_info.txt` con la versión de `backend/version.py`
+4. Ejecuta `pyinstaller LoLCoach.spec --clean --noconfirm`
+5. Verifica que `dist\LoLCoach\LoLCoach.exe` existe y reporta el tamaño
 
----
+Output: `dist\LoLCoach\` (~250 MB, incluye Streamlit, Plotly, Altair, FastAPI)
 
-### Legacy interface (Streamlit)
+### Generar el instalador
 
-The original Streamlit interface still works and does not require the backend:
+Requiere [Inno Setup 6](https://jrsoftware.org/isdl.php) instalado:
 
 ```bash
-streamlit run main.py
+iscc installer\LoLCoachSetup.iss
 ```
+
+Output: `installer\LoLCoachSetup-1.0.0-beta.1.exe`
+
+### Publicar una nueva versión
+
+```
+1. Actualizar VERSION en backend/version.py
+2. .\build.ps1
+3. iscc installer\LoLCoachSetup.iss
+4. Crear Release en GitHub con tag vX.Y.Z
+5. Adjuntar LoLCoachSetup-X.Y.Z.exe al release
+```
+
+### Cómo funciona el empaquetado
+
+| Archivo | Rol |
+|---|---|
+| `_paths.py` | Resuelve rutas en dev (`data/`) y en el .exe (`%APPDATA%\LoLCoach\`) |
+| `launcher.py` | Entry point del .exe — invoca `streamlit.web.cli` directamente |
+| `runtime_hook.py` | Hook de PyInstaller: configura `sys.path` antes de cualquier import |
+| `LoLCoach.spec` | Configuración de PyInstaller: qué incluir, qué excluir, hidden imports |
+| `build.ps1` | Automatiza todo el proceso en un comando |
+| `installer/LoLCoachSetup.iss` | Script Inno Setup para el instalador profesional |
+
+Datos del usuario en la versión instalada:
+- Base de datos: `%APPDATA%\LoLCoach\lol_coach.db`
+- Caché de API: `%LOCALAPPDATA%\LoLCoach\cache\`
+- Logs: `%APPDATA%\LoLCoach\logs\`
 
 ---
 
@@ -371,84 +459,106 @@ streamlit run main.py
 ```
 lol-coach/
 │
+├── _paths.py                # Resolución de rutas — fuente de verdad para dev y PyInstaller
+├── launcher.py              # Entry point del ejecutable empaquetado
+├── runtime_hook.py          # Hook de PyInstaller para sys.path
+├── LoLCoach.spec            # Configuración de PyInstaller
+├── build.ps1                # Script de build automatizado
+│
 ├── backend/
+│   ├── version.py           # Versión canónica de la app (fuente de verdad única)
+│   │
 │   ├── api/
-│   │   ├── routes/          # One file per endpoint group. Transport only —
-│   │   │                    # each handler calls a ViewModel and returns.
-│   │   ├── schemas/         # Pydantic request and response models.
-│   │   ├── websocket/       # Draft WebSocket connection manager.
-│   │   ├── middleware/       # Request logging middleware.
+│   │   ├── routes/          # Un archivo por grupo de endpoints. Solo transporte.
+│   │   ├── schemas/         # Modelos Pydantic de request y response.
+│   │   ├── websocket/       # Connection manager del WebSocket de Draft.
+│   │   ├── middleware/      # Middleware de logging de requests.
 │   │   ├── exception_handlers.py
-│   │   └── main.py          # App factory, CORS, router registration.
+│   │   └── main.py          # App factory, CORS, registro de routers.
 │   │
 │   ├── knowledge/           # Knowledge Engine.
-│   │   ├── engine.py        # Orchestrator — entry point: build_knowledge()
-│   │   ├── memory.py        # Adaptive goal that persists across sessions.
-│   │   └── rules.py         # Pattern detection rules (deaths, CS, streaks…)
+│   │   ├── engine.py        # Orquestador — entry point: build_knowledge()
+│   │   ├── memory.py        # Objetivo adaptativo persistente entre sesiones.
+│   │   └── rules.py         # Reglas de detección de patrones.
 │   │
 │   ├── training/            # Training Engine.
-│   │   ├── engine.py        # Orchestrator — entry point: build_training()
-│   │   ├── rules.py         # Skill catalog and role progression sequences.
-│   │   ├── goals.py         # Skill selection from priority ranking.
-│   │   ├── exercises.py     # Exercise generation with adaptive thresholds.
-│   │   ├── progress.py      # Stateless exercise evaluation from match data.
-│   │   ├── completion.py    # Auto-advance logic when success condition is met.
-│   │   ├── planner.py       # Daily focus, weekly roadmap, history builder.
+│   │   ├── engine.py        # Orquestador — entry point: build_training()
+│   │   ├── rules.py         # Catálogo de skills y secuencias por rol.
+│   │   ├── goals.py         # Selección de skill desde el ranking de prioridades.
+│   │   ├── exercises.py     # Generación de ejercicios con umbrales adaptativos.
+│   │   ├── progress.py      # Evaluación stateless de ejercicios desde match data.
+│   │   ├── completion.py    # Auto-avance cuando se cumple la condición de éxito.
+│   │   ├── planner.py       # Plan diario, roadmap semanal, historial.
 │   │   └── models.py        # Dataclasses: SkillNode, Exercise, TrainingViewModel…
 │   │
-│   ├── draft/               # Draft intelligence engine.
+│   ├── draft/               # Motor de Draft intelligence.
 │   │
-│   ├── services/            # Stateless services called by ViewModels.
-│   │   ├── priority_engine.py   # Win/loss delta → ranked Priority list.
-│   │   ├── champion_coach.py    # Per-champion classification and analysis.
-│   │   ├── post_game_review.py  # Per-match dimension breakdown.
-│   │   ├── sync_service.py      # Incremental match sync scheduling.
-│   │   └── setup_service.py     # Account lookup and initial configuration.
+│   ├── game_intelligence/   # Game Intelligence Platform.
+│   │   ├── platform.py      # Facade unificado GameIntelligencePlatform.
+│   │   ├── registries/      # ChampionRegistry, ItemRegistry, RuneRegistry…
+│   │   ├── knowledge/
+│   │   │   └── champions/
+│   │   │       └── tryndamere/   # Perfil, mecánicas, builds, macro, matchups.
+│   │   ├── models/          # Entidades de dominio.
+│   │   └── engines/         # Motores de inteligencia por dominio.
 │   │
-│   ├── viewmodels/          # Orchestration layer. Each ViewModel calls engines
-│   │                        # and services, then returns a dataclass that the
-│   │                        # route serializes. No HTTP logic here.
+│   ├── live_coach/          # Overlay en tiempo real durante la partida.
+│   │
+│   ├── services/            # Servicios stateless llamados por ViewModels.
+│   │   ├── priority_engine.py
+│   │   ├── champion_coach.py
+│   │   ├── post_game_review.py
+│   │   ├── sync_service.py
+│   │   ├── setup_service.py
+│   │   ├── match_resolver.py
+│   │   └── matchup_repository.py
+│   │
+│   ├── viewmodels/          # Capa de orquestación. Cada ViewModel llama engines
+│   │                        # y servicios, devuelve un dataclass que la route serializa.
 │   └── config/
-│       └── constants.py     # Shared domain constants.
+│       └── constants.py     # Constantes de dominio compartidas.
 │
 ├── frontend/
 │   ├── electron/
-│   │   ├── main.ts          # Electron main process. Window creation, IPC handlers.
-│   │   └── preload.ts       # Context bridge — controlled API exposure to renderer.
+│   │   ├── main.ts          # Proceso principal de Electron. Ventana, IPC handlers.
+│   │   └── preload.ts       # Context bridge — API controlada hacia el renderer.
 │   └── src/
-│       ├── features/        # Feature-based architecture. One folder per page:
-│       │   ├── dashboard/   #   dashboard · coaching · matches · draft
-│       │   ├── coaching/    #   progress · knowledge · training · settings
-│       │   ├── matches/
-│       │   ├── draft/
-│       │   ├── progress/
-│       │   ├── knowledge/
-│       │   ├── training/
-│       │   └── settings/
-│       │
+│       ├── features/        # Arquitectura por feature. Una carpeta por página.
 │       ├── components/
-│       │   ├── lol/         # LoL-specific design system: LoLCard, LoLScoreRing,
-│       │   │                # LoLGradeBadge, LoLSection, LoLEmptyState…
-│       │   └── layout/      # Sidebar, TitleBar, layout scaffolding.
-│       │
+│       │   ├── lol/         # Design system: LoLCard, LoLScoreRing, LoLSection…
+│       │   └── layout/      # Sidebar, TitleBar, scaffolding.
 │       ├── api/
-│       │   ├── client.ts    # Axios instance. Base URL from VITE_API_PORT.
-│       │   └── hooks/       # Per-feature TanStack Query hooks.
-│       │
-│       ├── store/           # Zustand slices for global client state.
-│       └── lib/             # Shared utilities (cn, formatters…)
+│       │   ├── client.ts    # Instancia Axios. Base URL desde VITE_API_PORT.
+│       │   └── hooks/       # Hooks TanStack Query por feature.
+│       ├── store/           # Slices Zustand para estado global del cliente.
+│       └── lib/             # Utilidades compartidas.
 │
-├── tests/                   # pytest suite — 385 tests, all mocked.
+├── ui/                      # Páginas de la UI Streamlit (legacy).
+│   ├── coaching.py
+│   ├── matches.py
+│   ├── draft.py
+│   ├── config.py
+│   ├── onboarding.py
+│   └── about.py             # Pantalla beta: versión, diagnóstico, logs, reporte de bugs.
+│
+├── installer/
+│   ├── LoLCoachSetup.iss    # Script Inno Setup para el instalador Windows.
+│   └── UPDATE_DESIGN.md     # Diseño del sistema de auto-actualización (GitHub Releases).
+│
+├── tests/                   # Suite pytest — 385 tests.
 ├── lcu/
-│   └── client.py            # LCU integration. Reads lockfile → HTTPS local API.
-├── data/                    # SQLite DB and Riot API JSON cache. Gitignored.
+│   └── client.py            # Integración LCU. Lee lockfile → HTTPS API local.
+├── data/                    # SQLite DB y caché JSON de Riot API. Gitignored.
 │
-├── scorer_v2.py             # Core scoring engine (role-aware, stat-based).
-├── coaching_engine.py       # Core coaching engine (rule-based, no ML).
-├── riot_api.py              # Riot Games API HTTP client with response caching.
-├── parser.py                # Match JSON → internal 38-field schema.
-├── db.py                    # SQLite data access. No ORM.
-├── main.py                  # Streamlit entry point (legacy interface).
+├── scorer.py                # Scorer legacy (mantenido para compatibilidad con matches_vm).
+├── scorer_v2.py             # Motor de scoring principal (role-aware, stat-based).
+├── coaching_engine.py       # Motor de coaching (rule-based, sin ML).
+├── coaching_rules.py        # Umbrales y reglas por rol.
+├── riot_api.py              # Cliente HTTP Riot Games API con caché de respuestas.
+├── parser.py                # Match JSON → esquema interno de 38 campos.
+├── db.py                    # Acceso a datos SQLite. Sin ORM.
+├── main.py                  # Entry point Streamlit (UI legacy).
+├── analytics.py             # Análisis estadístico de partidas.
 └── requirements.txt
 ```
 
@@ -464,11 +574,13 @@ lol-coach/
         ▼
   scorer_v2              ← scores each game per role
         │
-        ├──▶ priority_engine     ← ranks skills by win/loss delta
+        ├──▶ priority_engine         ← ranks skills by win/loss delta
         │
-        ├──▶ knowledge/engine    ← memory + patterns + adaptive goal
+        ├──▶ knowledge/engine        ← memory + patterns + adaptive goal
         │
-        └──▶ training/engine     ← skill tree + exercises + auto-completion
+        ├──▶ training/engine         ← skill tree + exercises + auto-completion
+        │
+        └──▶ game_intelligence/      ← champion profiles + matchup knowledge
 ```
 
 ---
@@ -566,6 +678,21 @@ Per-champion analysis within the player's own match history.
 
 ---
 
+### Game Intelligence Platform (`backend/game_intelligence/`)
+
+Deep knowledge base of champions, matchups, wave management, macro, items, and runes.
+Knowledge is data — adding a champion means creating a directory, zero engine changes.
+
+| | |
+|---|---|
+| **Entry point** | `GameIntelligencePlatform` facade in `platform.py` |
+| **Knowledge** | `knowledge/champions/{slug}/` — profile, mechanics, builds, macro, matchups |
+| **Registries** | `ChampionRegistry`, `ItemRegistry`, `RuneRegistry` — auto-discovery via `_paths.get_knowledge_dir()` |
+| **Campeones disponibles** | Tryndamere (con matchups vs. Darius, Garen, Teemo, Fiora, Malphite) |
+| **Endpoint** | `GET /api/v1/champion/{champion}?role=TOP&enemy=Darius` |
+
+---
+
 ### Draft Engine (`backend/draft/`)
 
 Real-time draft intelligence during champion select.
@@ -603,6 +730,7 @@ All endpoints are under `/api/v1`. Interactive docs at `http://127.0.0.1:8766/do
 | `GET` | `/matches/{id}/review` | Full per-game breakdown |
 | `GET` | `/coaching` | Active coaching recommendation |
 | `GET` | `/coaching/champion` | Champion-specific analysis |
+| `GET` | `/champion/{champion}` | Game Intelligence — champion + matchup knowledge |
 | `GET` | `/draft` | Current draft intelligence snapshot |
 | `GET` | `/settings` | Player config, region, sync state |
 | `GET` | `/settings/api-key/status` | API key validity, age, masked value |
@@ -643,6 +771,20 @@ All tests use mocked data — no live Riot API calls, no database writes.
 
 ## Roadmap
 
+### Beta 1.0 — Distribución ✅
+
+- [x] `_paths.py` — rutas compatibles con dev y PyInstaller
+- [x] `launcher.py` — entry point del ejecutable sin Python
+- [x] `LoLCoach.spec` — configuración PyInstaller completa
+- [x] `build.ps1` — build automatizado en un comando
+- [x] `installer/LoLCoachSetup.iss` — instalador Inno Setup con shortcuts y uninstaller
+- [x] `backend/version.py` — versión canónica única
+- [x] `ui/about.py` — pantalla de diagnóstico para beta testers
+- [x] Rutas hardcodeadas eliminadas de `setup_service`, `match_resolver`, `ui/draft`, `matchup_repository`, `champion_registry`
+- [x] Datos del usuario en `%APPDATA%\LoLCoach\` (instalado) o `data/` (dev)
+- [ ] Firmar el ejecutable con certificado de código (post-beta)
+- [ ] Auto-updater via GitHub Releases (diseñado en `installer/UPDATE_DESIGN.md`)
+
 ### Phase 1 — Scoring
 
 - [x] ADC scoring: Economy · Positioning · Combat Impact
@@ -650,14 +792,13 @@ All tests use mocked data — no live Riot API calls, no database writes.
 - [ ] MID scoring (architecture ready in `scorer_v2.py`)
 - [ ] JUNGLE scoring
 - [ ] SUPPORT scoring
-- [ ] Statistical weight optimization per dimension (requires larger sample sizes)
 
 ### Phase 2 — Coaching
 
 - [x] Rule-based coaching from win/loss patterns
 - [x] Champion Coach classification (Main / Growth Pick / Risk Pick)
 - [x] Knowledge Engine with persistent adaptive goal
-- [ ] Matchup-specific coaching (counter-pick tendencies, lane phase patterns)
+- [ ] Matchup-specific coaching
 
 ### Phase 3 — Training
 
@@ -665,23 +806,30 @@ All tests use mocked data — no live Riot API calls, no database writes.
 - [x] Adaptive exercise thresholds from player percentiles
 - [x] Auto-completion from post-game data (4 of 5 games)
 - [ ] Champion-specific exercise variants
-- [ ] Multi-week streak tracking and consistency badges
 
 ### Phase 4 — Draft
 
 - [x] Contextual draft analysis with LCU integration
 - [x] Real-time WebSocket updates during champion select
 - [ ] Matchup-based counter pick suggestions
-- [ ] Lane synergy scoring for duo queue
 
-### Phase 5 — Infrastructure
+### Phase 5 — Game Intelligence
+
+- [x] Champion profiles (Tryndamere)
+- [x] Matchup knowledge base (5 matchups)
+- [ ] Wave management engine
+- [ ] Item build intelligence
+- [ ] Additional champion profiles
+
+### Phase 6 — Infrastructure
 
 - [x] Electron desktop app (Windows + macOS)
 - [x] FastAPI REST + WebSocket backend
 - [x] Incremental match sync
+- [x] Windows installer (PyInstaller + Inno Setup)
 - [ ] Auto-start backend from Electron main process
-- [ ] In-app API key renewal reminder before expiry
-- [ ] Offline mode with cached data fallback
+- [ ] Auto-updater (GitHub Releases)
+- [ ] macOS packaging
 
 ---
 
